@@ -11,6 +11,7 @@ const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = configuredApiUrl ? configuredApiUrl.replace(/\/$/, "") : "/api";
 const ENTRY_POINT = "School Entrance Kiosk A";
 const UNLOCK_HOLD_MS = 1800;
+const SENSOR_TOUCH_RADIUS_RATIO = 0.38;
 const FINGER_OPTIONS = ["Pouce droit", "Index droit", "Pouce gauche", "Index gauche"] as const;
 
 type BeforeInstallPromptEvent = Event & {
@@ -292,6 +293,7 @@ function App() {
   const [calendarLabel, setCalendarLabel] = useState("Jour férié / jour non ouvré");
   const [calendarIsSchoolDay, setCalendarIsSchoolDay] = useState(false);
   const unlockTimerRef = useRef<number | null>(null);
+  const sensorSurfaceRef = useRef<HTMLButtonElement | null>(null);
   const isNavigatingFromHistoryRef = useRef(false);
 
   const navigateToView = (view: ViewMode, options?: { replace?: boolean }) => {
@@ -829,6 +831,10 @@ function App() {
   };
 
   const handleSensorTouch = async () => {
+    if (gateState === "scanning") {
+      return;
+    }
+
     setSensorPressed(true);
     try {
       if (sensorMode === "enroll") {
@@ -839,6 +845,37 @@ function App() {
     } finally {
       window.setTimeout(() => setSensorPressed(false), 260);
     }
+  };
+
+  const isValidSensorPlacement = (clientX: number, clientY: number) => {
+    const sensorSurface = sensorSurfaceRef.current;
+    if (!sensorSurface) {
+      return true;
+    }
+
+    const rect = sensorSurface.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const distance = Math.hypot(clientX - centerX, clientY - centerY);
+    const acceptedRadius = Math.min(rect.width, rect.height) * SENSOR_TOUCH_RADIUS_RATIO;
+
+    return distance <= acceptedRadius;
+  };
+
+  const rejectBadSensorPlacement = () => {
+    setGateState("error");
+    setScanResult(null);
+    setSensorPressed(false);
+    setScanMessage("Doigt mal positionné. Placez-le au centre du capteur puis recommencez.");
+  };
+
+  const handleSensorRelease = async (clientX: number, clientY: number) => {
+    if (!isValidSensorPlacement(clientX, clientY)) {
+      rejectBadSensorPlacement();
+      return;
+    }
+
+    await handleSensorTouch();
   };
 
   const exportDisciplinaryRegisterPdf = () => {
@@ -1546,7 +1583,23 @@ function App() {
                   <p className="mt-4 text-sm leading-6 text-slate-300">
                     C'est ici que l'élève doit poser son doigt. Si un scanner réel est configuré sur le poste, la lecture matérielle est utilisée; sinon l'application repasse sur la démo locale.
                   </p>
-                  <button type="button" onClick={() => { void handleSensorTouch(); }} className="mt-6 flex w-full justify-center">
+                  <button
+                    ref={sensorSurfaceRef}
+                    type="button"
+                    onPointerDown={() => setSensorPressed(true)}
+                    onPointerUp={(event) => {
+                      void handleSensorRelease(event.clientX, event.clientY);
+                    }}
+                    onPointerLeave={() => setSensorPressed(false)}
+                    onPointerCancel={() => setSensorPressed(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void handleSensorTouch();
+                      }
+                    }}
+                    className="mt-6 flex w-full touch-none justify-center"
+                  >
                     <div className={`relative flex h-64 w-64 items-center justify-center rounded-full border transition sm:h-72 sm:w-72 lg:h-80 lg:w-80 ${sensorPressed || gateState === "scanning" ? "scale-[0.98] border-cyan bg-cyan/15" : gateState === "success" ? "border-signal/60 bg-signal/10" : gateState === "error" ? "border-rose-400/60 bg-rose-500/10" : "border-cyan/30 bg-cyan/10"}`}>
                       <div className={`absolute inset-4 rounded-full border sm:inset-6 ${gateState === "scanning" ? "animate-ping border-cyan/40" : "border-white/10"}`} />
                       <div className={`absolute inset-8 rounded-full border sm:inset-12 ${gateState === "scanning" ? "animate-pulse border-neon/40" : "border-white/10"}`} />
