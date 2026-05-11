@@ -1405,7 +1405,7 @@ function App() {
     }
 
     return (
-      <aside className="hidden lg:block">
+      <aside className="hidden md:block">
         <div className="sticky top-6 rounded-[28px] border border-white/10 bg-white/[0.05] p-4 shadow-glow backdrop-blur-xl">
           <div className="px-3 pb-4">
             <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Navigation</div>
@@ -1438,7 +1438,7 @@ function App() {
     }
 
     return (
-      <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl lg:hidden">
+      <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl md:hidden">
         <div className="grid grid-cols-5 gap-2">
           {navigationItems.map((item) => {
             const isActive = activeView === item.key;
@@ -1461,7 +1461,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(143,123,255,0.22),transparent_24%),radial-gradient(circle_at_top_right,rgba(48,216,255,0.22),transparent_26%),linear-gradient(180deg,#030711_0%,#07101d_36%,#02050a_100%)] text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-7xl px-4 py-4 pb-28 sm:px-6 sm:py-6 sm:pb-32 lg:px-10 lg:pb-10"}`}>
+      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-7xl px-4 py-4 pb-28 sm:px-6 sm:py-6 sm:pb-10 lg:px-10"}`}>
         <header className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl sm:p-8">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1481,7 +1481,7 @@ function App() {
 
             <div className="flex flex-wrap gap-3 max-sm:flex-col max-sm:items-stretch">
               {!kioskMode && (
-                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 lg:block">
+                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
                   Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
                 </div>
               )}
@@ -1520,7 +1520,7 @@ function App() {
           </div>
         </header>
 
-        <div className={`mt-6 ${kioskMode ? "" : "lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6"}`}>
+        <div className={`mt-6 ${kioskMode ? "" : "md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-6 lg:grid-cols-[240px_minmax(0,1fr)]"}`}>
           {renderDesktopNavigation()}
 
           <div className="min-w-0">
