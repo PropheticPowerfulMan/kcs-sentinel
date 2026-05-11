@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { issueDemoToken } from "./modules/auth/auth.service.js";
-import { enrollFingerprint, simulateFingerprintScan, verifyFingerprint } from "./modules/biometrics/biometric.service.js";
+import { enrollFingerprint, getBiometricProviderStatus, scanFingerprint, simulateFingerprintScan, verifyFingerprint } from "./modules/biometrics/biometric.service.js";
 import { getStudentDisciplinaryRegister } from "./modules/attendance/attendance.service.js";
 import { getDashboardOverview } from "./modules/dashboard/dashboard.service.js";
 import { deleteSchoolCalendarDay, listSchoolCalendarDays, upsertSchoolCalendarDay } from "./modules/calendar/calendar.repository.js";
@@ -95,11 +95,15 @@ router.post("/auth/token", (req, res) => {
 router.post(
   "/biometrics/enroll",
   asyncRoute(async (req, res) => {
-    const schema = z.object({ studentId: z.string(), template: z.string().min(3) });
+    const schema = z.object({ studentId: z.string(), template: z.string().min(3).optional() });
     const payload = schema.parse(req.body);
     res.json(await enrollFingerprint(payload.studentId, payload.template));
   })
 );
+
+router.get("/biometrics/provider", (_req, res) => {
+  res.json(getBiometricProviderStatus());
+});
 
 router.post(
   "/biometrics/verify",
@@ -107,6 +111,26 @@ router.post(
     const schema = z.object({ template: z.string().min(3), entryPoint: z.string().default("Main Gate A"), direction: z.enum(["entry", "exit"]).default("entry") });
     const payload = schema.parse(req.body);
     const result = await verifyFingerprint(payload.template, payload.entryPoint, payload.direction);
+
+    if (!result.matched || !result.student) {
+      res.status(404).json({ message: "Fingerprint not recognized", ...result });
+      return;
+    }
+
+    res.json({
+      ...result,
+      student: toDirectoryItem(result.student),
+      notificationPreview: result.eventType === "entry" ? buildArrivalNotification(result.student.fullName, result.student.guardianPhone) : undefined
+    });
+  })
+);
+
+router.post(
+  "/gate/scan",
+  asyncRoute(async (req, res) => {
+    const schema = z.object({ studentId: z.string().optional(), entryPoint: z.string().default("Entrance Kiosk"), direction: z.enum(["entry", "exit"]).default("entry") });
+    const payload = schema.parse(req.body);
+    const result = await scanFingerprint(payload.entryPoint, payload.direction, payload.studentId);
 
     if (!result.matched || !result.student) {
       res.status(404).json({ message: "Fingerprint not recognized", ...result });

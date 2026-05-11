@@ -7,7 +7,8 @@ import { mockOverview } from "./mockOverview";
 import { mockStudents } from "./mockStudents";
 import type { AttendanceDirection, AttendanceFrequencySummary, AttendanceLedgerItem, DashboardOverview, GateScanResponse, LiveFeedItem, SchoolCalendarDay, StudentDirectoryItem, StudentDisciplinaryRegister } from "./types";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+const API_URL = configuredApiUrl ? configuredApiUrl.replace(/\/$/, "") : "/api";
 const ENTRY_POINT = "School Entrance Kiosk A";
 const UNLOCK_HOLD_MS = 1800;
 const FINGER_OPTIONS = ["Pouce droit", "Index droit", "Pouce gauche", "Index gauche"] as const;
@@ -20,7 +21,7 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
-type ViewMode = "overview" | "gate";
+type ViewMode = "dashboard" | "gate" | "liveFeed" | "disciplinary" | "attendance";
 type GateState = "idle" | "scanning" | "success" | "error";
 type SensorMode = "verify" | "enroll" | "exit";
 type StatCard = {
@@ -36,6 +37,40 @@ const statCards = [
   { key: "absent", label: "Absent", tone: "from-rose-500/30 to-rose-500/5" },
   { key: "biometricSuccessRate", label: "Biometric Accuracy", tone: "from-emerald-400/30 to-emerald-400/5", suffix: "%" }
 ] satisfies StatCard[];
+
+const navigationItems: Array<{ key: ViewMode; label: string; shortLabel: string; activeClass: string; eyebrow: string }> = [
+  { key: "gate", label: "Poste d'entrée", shortLabel: "Entrée", activeClass: "bg-cyan text-slate-950", eyebrow: "Capteur" },
+  { key: "dashboard", label: "Dashboard", shortLabel: "Accueil", activeClass: "bg-white text-slate-950", eyebrow: "Vue" },
+  { key: "liveFeed", label: "Flux live", shortLabel: "Flux", activeClass: "bg-neon text-white", eyebrow: "Temps réel" },
+  { key: "disciplinary", label: "Registre", shortLabel: "Registre", activeClass: "bg-amber-300 text-slate-950", eyebrow: "Élèves" },
+  { key: "attendance", label: "Historique", shortLabel: "Journal", activeClass: "bg-signal text-slate-950", eyebrow: "Présences" }
+];
+
+const viewPaths: Record<ViewMode, string> = {
+  gate: "/gate",
+  dashboard: "/dashboard",
+  liveFeed: "/live-feed",
+  disciplinary: "/disciplinary",
+  attendance: "/attendance"
+};
+
+const appBasePath = import.meta.env.BASE_URL === "/" ? "" : import.meta.env.BASE_URL.replace(/\/$/, "");
+
+const normalizeRoutePath = (pathname: string) => {
+  const withoutBase = appBasePath && pathname.startsWith(appBasePath) ? pathname.slice(appBasePath.length) || "/" : pathname;
+  const withLeadingSlash = withoutBase.startsWith("/") ? withoutBase : `/${withoutBase}`;
+  return withLeadingSlash.length > 1 && withLeadingSlash.endsWith("/") ? withLeadingSlash.slice(0, -1) : withLeadingSlash;
+};
+
+const getDefaultView = () => (window.innerWidth < 1024 ? "gate" : "dashboard");
+
+const getViewFromPath = (pathname: string): ViewMode => {
+  const normalizedPath = normalizeRoutePath(pathname);
+  const matchedView = Object.entries(viewPaths).find(([, path]) => path === normalizedPath)?.[0] as ViewMode | undefined;
+  return matchedView ?? getDefaultView();
+};
+
+const getPathForView = (view: ViewMode) => `${appBasePath}${viewPaths[view]}`;
 
 const workflow = [
   "Choisir l'élève ou basculer le capteur en mode présence",
@@ -237,7 +272,7 @@ function App() {
   const [overview, setOverview] = useState<DashboardOverview>(mockOverview);
   const [students, setStudents] = useState<StudentDirectoryItem[]>(mockStudents);
   const [status, setStatus] = useState("Booting school command center...");
-  const [activeView, setActiveView] = useState<ViewMode>(window.innerWidth < 1024 ? "gate" : "overview");
+  const [activeView, setActiveView] = useState<ViewMode>(() => getViewFromPath(window.location.pathname));
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
   const [online, setOnline] = useState(window.navigator.onLine);
@@ -256,6 +291,23 @@ function App() {
   const [calendarLabel, setCalendarLabel] = useState("Jour férié / jour non ouvré");
   const [calendarIsSchoolDay, setCalendarIsSchoolDay] = useState(false);
   const unlockTimerRef = useRef<number | null>(null);
+  const isNavigatingFromHistoryRef = useRef(false);
+
+  const navigateToView = (view: ViewMode, options?: { replace?: boolean }) => {
+    setActiveView(view);
+
+    const nextPath = getPathForView(view);
+    if (window.location.pathname === nextPath) {
+      return;
+    }
+
+    if (options?.replace) {
+      window.history.replaceState({ view }, "", nextPath);
+      return;
+    }
+
+    window.history.pushState({ view }, "", nextPath);
+  };
 
   const isStandalone = useMemo(
     () => window.matchMedia("(display-mode: standalone)").matches || (window.navigator as Navigator & { standalone?: boolean }).standalone === true,
@@ -325,6 +377,34 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const hasExplicitRoute = Object.values(viewPaths).includes(normalizeRoutePath(window.location.pathname));
+    navigateToView(activeView, { replace: !hasExplicitRoute });
+
+    const handlePopState = () => {
+      isNavigatingFromHistoryRef.current = true;
+      setActiveView(getViewFromPath(window.location.pathname));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isNavigatingFromHistoryRef.current) {
+      isNavigatingFromHistoryRef.current = false;
+      return;
+    }
+
+    const nextPath = getPathForView(activeView);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ view: activeView }, "", nextPath);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
@@ -353,7 +433,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    document.title = activeView === "gate" ? "KCS School Gate" : "KCS School | SENTINEL";
+    document.title =
+      activeView === "gate"
+        ? "KCS School Gate"
+        : activeView === "liveFeed"
+          ? "KCS School | Flux live"
+          : activeView === "disciplinary"
+            ? "KCS School | Registre"
+            : activeView === "attendance"
+              ? "KCS School | Historique"
+              : "KCS School | SENTINEL";
   }, [activeView]);
 
   useEffect(() => {
@@ -417,7 +506,7 @@ function App() {
 
   const enterKioskMode = async () => {
     setKioskMode(true);
-    setActiveView("gate");
+    navigateToView("gate");
     setStatus("Kiosk mode armed for the entrance station");
 
     try {
@@ -640,7 +729,7 @@ function App() {
   };
 
   const runScan = async (studentId: string | undefined, direction: AttendanceDirection) => {
-    setActiveView("gate");
+    navigateToView("gate");
     setGateState("scanning");
     setScanResult(null);
     setScanMessage(
@@ -654,7 +743,7 @@ function App() {
     await delay(1400);
 
     try {
-      const response = await fetch(`${API_URL}/gate/simulate-scan`, {
+      const response = await fetch(`${API_URL}/gate/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId, entryPoint: ENTRY_POINT, direction })
@@ -699,21 +788,23 @@ function App() {
     setScanResult(null);
     setScanMessage(`Capture de l'empreinte ${selectedFinger.toLowerCase()} pour ${selectedStudent.fullName}...`);
 
-    const template = `fp:${selectedStudent.id}:${selectedFinger.toLowerCase().replace(/\s+/g, "-")}`;
     await delay(1200);
 
     try {
       const response = await fetch(`${API_URL}/biometrics/enroll`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: selectedStudent.id, template })
+        body: JSON.stringify({ studentId: selectedStudent.id, template: `fp:${selectedStudent.id}:${selectedFinger.toLowerCase().replace(/\s+/g, "-")}` })
       });
 
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+
       if (!response.ok) {
-        throw new Error("Enrollment failed");
+        setGateState("error");
+        setScanMessage(payload?.message ?? "Échec de capture ou d'enrôlement de l'empreinte.");
+        return;
       }
 
-      await response.json();
       setGateState("success");
       setScanMessage(`Empreinte enregistrée avec succès pour ${selectedStudent.fullName}.`);
       setScanResult({
@@ -1148,9 +1239,228 @@ function App() {
     );
   };
 
+  const renderDashboardHome = () => (
+    <>
+      <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {statCards.map((card) => {
+          const value = overview.metrics[card.key];
+          return (
+            <article
+              key={card.key}
+              className={`rounded-[26px] border border-white/10 bg-gradient-to-br ${card.tone} p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl`}
+            >
+              <div className="text-sm uppercase tracking-[0.18em] text-slate-300 sm:tracking-[0.24em]">{card.label}</div>
+              <div className="mt-4 break-words text-3xl font-semibold text-white sm:text-4xl">
+                {value}
+                {card.suffix ?? ""}
+              </div>
+              <div className="mt-3 text-sm text-slate-300">{overview.storageMode ?? "Persistent ledger ready for integration."}</div>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Attendance Feed</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">Real-time biometric confirmations</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigateToView("liveFeed")}
+              className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan"
+            >
+              Ouvrir le flux complet
+            </button>
+          </div>
+          <div className="mt-6 space-y-4">
+            {overview.liveFeed.slice(0, 4).map((item) => (
+              <div key={item.id} className="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto] md:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h3 className="break-words text-lg font-medium text-white">{item.studentName}</h3>
+                    <span className="max-w-full rounded-full border border-white/10 px-3 py-1 text-center text-xs uppercase tracking-[0.16em] text-slate-300 sm:tracking-[0.2em]">{item.className}</span>
+                    <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${item.status === "late" ? "bg-amber-500/15 text-amber-200" : "bg-cyan/15 text-cyan"}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <p className="mt-2 break-words text-sm text-slate-300">
+                    Entry point: {item.entryPoint} · Source: {item.source} · Verified at {new Date(item.timestamp).toLocaleTimeString()}
+                  </p>
+                </div>
+                <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-6">
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Threat & Insight Layer</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white">AI readiness matrix</h2>
+            <div className="mt-5 space-y-3">
+              {Object.entries(overview.aiReadiness).map(([key, value]) => (
+                <div key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-950/45 px-4 py-3">
+                  <span className="min-w-0 break-words capitalize text-slate-200">{key.replace(/([A-Z])/g, " $1")}</span>
+                  <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${value ? "bg-signal/15 text-signal" : "bg-white/10 text-slate-300"}`}>
+                    {value ? "Ready" : "Pending"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Platform Pillars</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Parcours opérateur</h2>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigateToView("disciplinary")}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
+                >
+                  Registre
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateToView("attendance")}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
+                >
+                  Historique
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-4">
+              {pillars.map((pillar) => (
+                <article key={pillar.title} className="rounded-3xl border border-white/5 bg-slate-950/45 p-5">
+                  <h3 className="text-lg font-medium text-white">{pillar.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{pillar.detail}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+
+  const renderLiveFeedPage = () => (
+    <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Attendance Feed</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Toutes les confirmations biométriques</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+            Cette page regroupe uniquement le flux temps réel pour éviter de faire défiler tout le dashboard lorsqu'on supervise les arrivées.
+          </p>
+        </div>
+        <div className="max-w-full rounded-full border border-signal/30 bg-signal/10 px-4 py-2 text-center text-sm text-signal">{overview.metrics.present + overview.metrics.late} pointages du jour</div>
+      </div>
+      <div className="mt-6 space-y-4">
+        {overview.liveFeed.map((item) => (
+          <div key={item.id} className="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="break-words text-lg font-medium text-white">{item.studentName}</h3>
+                <span className="max-w-full rounded-full border border-white/10 px-3 py-1 text-center text-xs uppercase tracking-[0.16em] text-slate-300 sm:tracking-[0.2em]">{item.className}</span>
+                <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${item.status === "late" ? "bg-amber-500/15 text-amber-200" : "bg-cyan/15 text-cyan"}`}>
+                  {item.status}
+                </span>
+              </div>
+              <p className="mt-2 break-words text-sm text-slate-300">
+                Entry point: {item.entryPoint} · Source: {item.source} · Verified at {new Date(item.timestamp).toLocaleTimeString()}
+              </p>
+            </div>
+            <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+
+  const renderActivePage = () => {
+    switch (activeView) {
+      case "dashboard":
+        return renderDashboardHome();
+      case "liveFeed":
+        return renderLiveFeedPage();
+      case "disciplinary":
+        return renderDisciplinaryRegister();
+      case "attendance":
+        return renderAttendanceRegister();
+      default:
+        return null;
+    }
+  };
+
+  const renderDesktopNavigation = () => {
+    if (kioskMode) {
+      return null;
+    }
+
+    return (
+      <aside className="hidden lg:block">
+        <div className="sticky top-6 rounded-[28px] border border-white/10 bg-white/[0.05] p-4 shadow-glow backdrop-blur-xl">
+          <div className="px-3 pb-4">
+            <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Navigation</div>
+            <div className="mt-2 text-sm leading-6 text-slate-300">Passez d'une page métier à l'autre sans faire défiler tout l'écran.</div>
+          </div>
+          <div className="space-y-2">
+            {navigationItems.map((item) => {
+              const isActive = activeView === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => navigateToView(item.key)}
+                  className={`w-full rounded-3xl border px-4 py-4 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_18px_40px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
+                >
+                  <div className={`text-[11px] uppercase tracking-[0.22em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
+                  <div className="mt-2 text-sm font-semibold">{item.label}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </aside>
+    );
+  };
+
+  const renderMobileNavigation = () => {
+    if (kioskMode) {
+      return null;
+    }
+
+    return (
+      <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl lg:hidden">
+        <div className="grid grid-cols-5 gap-2">
+          {navigationItems.map((item) => {
+            const isActive = activeView === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => navigateToView(item.key)}
+                className={`rounded-2xl px-2 py-3 text-center transition ${isActive ? item.activeClass : "bg-white/[0.04] text-slate-200"}`}
+              >
+                <div className={`text-[9px] uppercase tracking-[0.2em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
+                <div className="mt-1 text-[11px] font-semibold leading-tight">{item.shortLabel}</div>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(143,123,255,0.22),transparent_24%),radial-gradient(circle_at_top_right,rgba(48,216,255,0.22),transparent_26%),linear-gradient(180deg,#030711_0%,#07101d_36%,#02050a_100%)] text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-10"}`}>
+      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-7xl px-4 py-4 pb-28 sm:px-6 sm:py-6 sm:pb-32 lg:px-10 lg:pb-10"}`}>
         <header className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl sm:p-8">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1169,21 +1479,10 @@ function App() {
             </div>
 
             <div className="flex flex-wrap gap-3 max-sm:flex-col max-sm:items-stretch">
-              <button
-                type="button"
-                onClick={() => setActiveView("gate")}
-                className={`rounded-2xl px-5 py-3 text-sm font-semibold max-sm:w-full ${activeView === "gate" ? "bg-cyan text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}
-              >
-                Poste d'entrée
-              </button>
               {!kioskMode && (
-                <button
-                  type="button"
-                  onClick={() => setActiveView("overview")}
-                  className={`rounded-2xl px-5 py-3 text-sm font-semibold max-sm:w-full ${activeView === "overview" ? "bg-white text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}
-                >
-                  Dashboard
-                </button>
+                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 lg:block">
+                  Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
+                </div>
               )}
               <button
                 type="button"
@@ -1220,8 +1519,12 @@ function App() {
           </div>
         </header>
 
+        <div className={`mt-6 ${kioskMode ? "" : "lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-6"}`}>
+          {renderDesktopNavigation()}
+
+          <div className="min-w-0">
         {activeView === "gate" ? (
-          <section className="mt-6 grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <section className="grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1240,7 +1543,7 @@ function App() {
                     </div>
                   </div>
                   <p className="mt-4 text-sm leading-6 text-slate-300">
-                    C'est ici que l'élève doit poser son doigt. Dans cette démo sans scanner USB, touchez le capteur ci-dessous pour simuler la pose réelle de l'empreinte.
+                    C'est ici que l'élève doit poser son doigt. Si un scanner réel est configuré sur le poste, la lecture matérielle est utilisée; sinon l'application repasse sur la démo locale.
                   </p>
                   <button type="button" onClick={() => { void handleSensorTouch(); }} className="mt-6 flex w-full justify-center">
                     <div className={`relative flex h-64 w-64 items-center justify-center rounded-full border transition sm:h-72 sm:w-72 lg:h-80 lg:w-80 ${sensorPressed || gateState === "scanning" ? "scale-[0.98] border-cyan bg-cyan/15" : gateState === "success" ? "border-signal/60 bg-signal/10" : gateState === "error" ? "border-rose-400/60 bg-rose-500/10" : "border-cyan/30 bg-cyan/10"}`}>
@@ -1429,20 +1732,20 @@ function App() {
               <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 backdrop-blur-xl sm:p-6">
                 <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Guide opérateur</div>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
+                  <div className="min-w-0 rounded-3xl border border-white/10 bg-slate-950/45 p-5">
                     <div className="text-sm font-medium text-white">État d'installation</div>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">{installState}</p>
+                    <p className="mt-2 break-words text-sm leading-6 text-slate-300">{installState}</p>
                   </div>
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
+                  <div className="min-w-0 rounded-3xl border border-white/10 bg-slate-950/45 p-5">
                     <div className="text-sm font-medium text-white">Politique appareil</div>
-                    <p className="mt-2 text-sm leading-6 text-slate-300">Utilisez le mode kiosque sur la tablette d'entrée pour empêcher les sorties accidentelles du poste biométrique.</p>
+                    <p className="mt-2 break-words text-sm leading-6 text-slate-300">Utilisez le mode kiosque sur la tablette d'entrée pour empêcher les sorties accidentelles du poste biométrique.</p>
                   </div>
                 </div>
                 <div className="mt-5 space-y-3">
                   {workflow.map((step, index) => (
                     <div key={step} className="flex items-start gap-4 rounded-2xl border border-white/10 bg-slate-950/45 px-4 py-4">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan/15 text-sm font-semibold text-cyan">{index + 1}</div>
-                      <div className="text-sm leading-6 text-slate-200">{step}</div>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cyan/15 text-sm font-semibold text-cyan">{index + 1}</div>
+                      <div className="min-w-0 break-words text-sm leading-6 text-slate-200">{step}</div>
                     </div>
                   ))}
                 </div>
@@ -1474,92 +1777,11 @@ function App() {
               </div>
             </div>
           </section>
-        ) : (
-          <>
-            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {statCards.map((card) => {
-                const value = overview.metrics[card.key];
-                return (
-                  <article
-                    key={card.key}
-                    className={`rounded-[26px] border border-white/10 bg-gradient-to-br ${card.tone} p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl`}
-                  >
-                    <div className="text-sm uppercase tracking-[0.18em] text-slate-300 sm:tracking-[0.24em]">{card.label}</div>
-                    <div className="mt-4 break-words text-3xl font-semibold text-white sm:text-4xl">
-                      {value}
-                      {card.suffix ?? ""}
-                    </div>
-                    <div className="mt-3 text-sm text-slate-300">{overview.storageMode ?? "Persistent ledger ready for integration."}</div>
-                  </article>
-                );
-              })}
-            </section>
+        ) : renderActivePage()}
+          </div>
+        </div>
 
-            <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Attendance Feed</p>
-                    <h2 className="mt-2 text-2xl font-semibold text-white">Real-time biometric confirmations</h2>
-                  </div>
-                  <div className="max-w-full rounded-full border border-signal/30 bg-signal/10 px-4 py-2 text-center text-sm text-signal">Operational</div>
-                </div>
-                <div className="mt-6 space-y-4">
-                  {overview.liveFeed.map((item) => (
-                    <div key={item.id} className="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto] md:items-center">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <h3 className="break-words text-lg font-medium text-white">{item.studentName}</h3>
-                          <span className="max-w-full rounded-full border border-white/10 px-3 py-1 text-center text-xs uppercase tracking-[0.16em] text-slate-300 sm:tracking-[0.2em]">{item.className}</span>
-                          <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${item.status === "late" ? "bg-amber-500/15 text-amber-200" : "bg-cyan/15 text-cyan"}`}>
-                            {item.status}
-                          </span>
-                        </div>
-                        <p className="mt-2 break-words text-sm text-slate-300">
-                          Entry point: {item.entryPoint} · Source: {item.source} · Verified at {new Date(item.timestamp).toLocaleTimeString()}
-                        </p>
-                      </div>
-                      <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-6">
-                <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Threat & Insight Layer</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">AI readiness matrix</h2>
-                  <div className="mt-5 space-y-3">
-                    {Object.entries(overview.aiReadiness).map(([key, value]) => (
-                      <div key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-950/45 px-4 py-3">
-                        <span className="min-w-0 break-words capitalize text-slate-200">{key.replace(/([A-Z])/g, " $1")}</span>
-                        <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${value ? "bg-signal/15 text-signal" : "bg-white/10 text-slate-300"}`}>
-                          {value ? "Ready" : "Pending"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Platform Pillars</p>
-                  <div className="mt-5 grid gap-4">
-                    {pillars.map((pillar) => (
-                      <article key={pillar.title} className="rounded-3xl border border-white/5 bg-slate-950/45 p-5">
-                        <h3 className="text-lg font-medium text-white">{pillar.title}</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-300">{pillar.detail}</p>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {renderDisciplinaryRegister()}
-
-            {renderAttendanceRegister()}
-          </>
-        )}
+        {renderMobileNavigation()}
       </div>
     </div>
   );

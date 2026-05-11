@@ -45,7 +45,7 @@ npm run dev:api
 npm run dev:web
 ```
 
-The frontend expects the API at `http://localhost:4000` by default.
+For local development, the frontend can target `http://localhost:4000/api` through `VITE_API_URL`.
 
 ## Local Access
 
@@ -90,6 +90,27 @@ The API now expects PostgreSQL for persistent attendance storage.
 3. Ensure `DATABASE_URL` points to a reachable PostgreSQL server.
 
 On startup, the API creates the required tables and seeds the first students automatically.
+
+## Real Fingerprint Scanner
+
+The project can now use a real fingerprint scanner through a local biometric bridge service.
+
+1. Run the scanner vendor SDK or a local bridge on the same machine as the API.
+2. Set `BIOMETRIC_PROVIDER=http-bridge` in `apps/api/.env`.
+3. Set `BIOMETRIC_BRIDGE_URL` to the bridge base URL, for example `http://127.0.0.1:4100`.
+4. If required, set `BIOMETRIC_BRIDGE_API_KEY` and `BIOMETRIC_BRIDGE_TIMEOUT_MS`.
+
+The bridge must expose a `POST /capture` endpoint returning JSON like this:
+
+```json
+{
+  "template": "raw-template-from-scanner",
+  "quality": 92,
+  "deviceName": "DigitalPersona 4500"
+}
+```
+
+When this provider is enabled, entrance scans and enrollments use the real hardware capture instead of the demo template flow.
 
 ## Entrance Kiosk Mode
 
@@ -137,3 +158,14 @@ https://<github-username>.github.io/kcs-sentinel/
 ```
 
 For a live production deployment with the real API, use GitHub Pages only for the frontend and configure the backend separately.
+
+## Netlify Deployment
+
+Netlify can host the frontend build directly.
+
+1. Use the generated `apps/web/dist` folder or connect the repository to Netlify.
+2. If you deploy from the repository, Netlify can use `netlify.toml` from the project root automatically.
+3. In Netlify environment variables, set `VITE_API_URL` to your public backend URL, for example `https://your-backend.example.com/api`.
+4. If `VITE_API_URL` is not set, the frontend falls back to `/api`; if that endpoint is unavailable, the dashboard still loads with the built-in mock data.
+
+An example variable file is available at `apps/web/.env.example`.

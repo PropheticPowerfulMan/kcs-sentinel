@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import type { AttendanceDirection, BiometricMatchResult, Student } from "../../core/types.js";
 import { createAttendanceRecord, getAttendanceForToday, markAttendanceExit } from "../attendance/attendance.repository.js";
+import { captureFingerprintTemplate, isLiveBiometricCaptureEnabled } from "./biometric.provider.js";
 import {
   findStudentById,
   listStudentsWithBiometrics,
@@ -26,8 +27,21 @@ const compareTemplates = (candidate: string, storedTemplate: string) => {
 
 const isLateArrival = (timestamp: Date) => timestamp.getHours() > 8 || (timestamp.getHours() === 8 && timestamp.getMinutes() >= 1);
 
-export const enrollFingerprint = async (studentId: string, rawTemplate: string) => {
-  const student = await updateStudentBiometricTemplate(studentId, rawTemplate);
+const resolveEnrollmentTemplate = async (rawTemplate?: string) => {
+  if (isLiveBiometricCaptureEnabled()) {
+    return captureFingerprintTemplate("enroll");
+  }
+
+  if (!rawTemplate?.trim()) {
+    throw new Error("No fingerprint template was provided for enrollment");
+  }
+
+  return rawTemplate.trim();
+};
+
+export const enrollFingerprint = async (studentId: string, rawTemplate?: string) => {
+  const template = await resolveEnrollmentTemplate(rawTemplate);
+  const student = await updateStudentBiometricTemplate(studentId, template);
 
   if (!student) {
     throw new Error("Student not found");
@@ -134,3 +148,17 @@ export const simulateFingerprintScan = async (studentId: string | undefined, ent
 
   return verifyFingerprint(student.biometricTemplate, entryPoint, direction);
 };
+
+export const scanFingerprint = async (entryPoint: string, direction: AttendanceDirection = "entry", fallbackStudentId?: string) => {
+  if (isLiveBiometricCaptureEnabled()) {
+    const probeTemplate = await captureFingerprintTemplate(direction === "exit" ? "exit" : "verify");
+    return verifyFingerprint(probeTemplate, entryPoint, direction);
+  }
+
+  return simulateFingerprintScan(fallbackStudentId, entryPoint, direction);
+};
+
+export const getBiometricProviderStatus = () => ({
+  provider: env.biometricProvider,
+  liveCaptureEnabled: isLiveBiometricCaptureEnabled()
+});
