@@ -1,0 +1,15 @@
+{
+  "name": "kcs-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/api"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace apps/web",
+    "dev:api": "npm run dev --workspace apps/api",
+    "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
+    "build:web:pages": "npm run build:pages --workspace apps/web"
+  }
+}
