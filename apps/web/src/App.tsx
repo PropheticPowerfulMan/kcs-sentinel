@@ -71,6 +71,7 @@ const getViewFromPath = (pathname: string): ViewMode => {
 };
 
 const getPathForView = (view: ViewMode) => `${appBasePath}${viewPaths[view]}`;
+const logoAssetPath = `${import.meta.env.BASE_URL}icons/kcs-logo.jpg`;
 
 const workflow = [
   "Choisir l'élève ou basculer le capteur en mode présence",
@@ -1551,7 +1552,7 @@ function App() {
                       <div className={`absolute inset-8 rounded-full border sm:inset-12 ${gateState === "scanning" ? "animate-pulse border-neon/40" : "border-white/10"}`} />
                       <div className="absolute inset-[4.1rem] rounded-full border border-dashed border-white/10 sm:inset-[5.4rem]" />
                       <div className="text-center">
-                        <img src="/icons/kcs-logo.jpg" alt="School scanner mark" className="mx-auto h-20 w-20 rounded-full bg-white object-cover sm:h-24 sm:w-24" />
+                        <img src={logoAssetPath} alt="School scanner mark" className="mx-auto h-20 w-20 rounded-full bg-white object-cover sm:h-24 sm:w-24" />
                         <div className="mt-4 px-4 text-sm font-semibold text-white sm:text-base">Posez le doigt ici</div>
                         <div className="mt-2 px-4 text-[10px] uppercase tracking-[0.2em] text-slate-300 sm:text-xs sm:tracking-[0.28em]">{getSensorPrompt(sensorMode, gateState)}</div>
                         <div className="mt-3 px-4 text-[11px] font-medium text-cyan sm:text-xs">Doigt actif : {selectedFinger}</div>

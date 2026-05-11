@@ -1,4 +1,4 @@
-const CACHE_NAME = "kcs-sentinel-shell-v3";
+const CACHE_NAME = "kcs-sentinel-shell-v4";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [
@@ -29,6 +29,25 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") {
+    return;
+  }
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok && event.request.url.startsWith(self.location.origin)) {
+            const clone = response.clone();
+            void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+
+          return response;
+        })
+        .catch(async () => {
+          const cachedPage = await caches.match(event.request);
+          return cachedPage ?? caches.match(toScopedPath("./"));
+        })
+    );
     return;
   }
 
