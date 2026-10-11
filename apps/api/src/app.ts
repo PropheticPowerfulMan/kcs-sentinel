@@ -1,12 +1,15 @@
 import cors from "cors";
 import express from "express";
 import { ZodError } from "zod";
+import { env } from "./config/env.js";
 import operationsRouter from "./modules/integration/operations.routes.js";
 import router from "./routes.js";
 
 export const createApp = () => {
   const app = express();
-  app.use(cors());
+  if (env.nodeEnv !== "production") {
+    app.use(cors());
+  }
   app.use(express.json({ limit: "2mb" }));
   app.use("/api", operationsRouter);
   app.use("/api", router);

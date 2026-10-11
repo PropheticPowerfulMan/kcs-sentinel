@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import { issueDemoToken } from "./modules/auth/auth.service.js";
+import { authenticate, authorize } from "./modules/auth/auth.middleware.js";
 import { enrollFingerprint, getBiometricProviderStatus, scanFingerprint, simulateFingerprintScan, verifyFingerprint } from "./modules/biometrics/biometric.service.js";
 import { getStudentDisciplinaryRegister } from "./modules/attendance/attendance.service.js";
 import { getDashboardOverview } from "./modules/dashboard/dashboard.service.js";
@@ -24,6 +24,8 @@ const asyncRoute = (handler: (req: Parameters<Exclude<AsyncRouteHandler, undefin
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "KCS SENTINEL API" });
 });
+
+router.use(authenticate, authorize(["super_admin", "school_admin", "security_operator", "analyst"]));
 
 router.get(
   "/dashboard/overview",
@@ -85,12 +87,6 @@ router.delete(
     res.json({ deleted });
   })
 );
-
-router.post("/auth/token", (req, res) => {
-  const schema = z.object({ role: z.enum(["super_admin", "school_admin", "security_operator", "analyst"]) });
-  const { role } = schema.parse(req.body);
-  res.json({ accessToken: issueDemoToken(role) });
-});
 
 router.post(
   "/biometrics/enroll",

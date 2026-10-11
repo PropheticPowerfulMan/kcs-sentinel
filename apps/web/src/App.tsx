@@ -9,6 +9,12 @@ import type { AttendanceDirection, AttendanceFrequencySummary, AttendanceLedgerI
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 const API_URL = configuredApiUrl ? configuredApiUrl.replace(/\/$/, "") : "/api";
+const sentinelFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const token = sessionStorage.getItem("sentinel-token");
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+};
 const ENTRY_POINT = "School Entrance Kiosk A";
 const UNLOCK_HOLD_MS = 1800;
 const SENSOR_TOUCH_RADIUS_RATIO = 0.38;
@@ -346,8 +352,8 @@ function App() {
   const refreshOverview = async () => {
     try {
       const [overviewResponse, studentsResponse] = await Promise.all([
-        fetch(`${API_URL}/dashboard/overview`),
-        fetch(`${API_URL}/students`)
+        sentinelFetch(`${API_URL}/dashboard/overview`),
+        sentinelFetch(`${API_URL}/students`)
       ]);
 
       if (!overviewResponse.ok || !studentsResponse.ok) {
@@ -462,7 +468,7 @@ function App() {
 
     const loadRegister = async () => {
       try {
-        const response = await fetch(`${API_URL}/students/${selectedStudent.id}/disciplinary-register`);
+        const response = await sentinelFetch(`${API_URL}/students/${selectedStudent.id}/disciplinary-register`);
         if (!response.ok) {
           throw new Error("Register unavailable");
         }
@@ -480,7 +486,7 @@ function App() {
   useEffect(() => {
     const loadCalendar = async () => {
       try {
-        const response = await fetch(`${API_URL}/calendar/days`);
+        const response = await sentinelFetch(`${API_URL}/calendar/days`);
         if (!response.ok) {
           throw new Error("Calendar unavailable");
         }
@@ -746,7 +752,7 @@ function App() {
     await delay(1400);
 
     try {
-      const response = await fetch(`${API_URL}/gate/scan`, {
+      const response = await sentinelFetch(`${API_URL}/gate/scan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId, entryPoint: ENTRY_POINT, direction })
@@ -794,7 +800,7 @@ function App() {
     await delay(1200);
 
     try {
-      const response = await fetch(`${API_URL}/biometrics/enroll`, {
+      const response = await sentinelFetch(`${API_URL}/biometrics/enroll`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ studentId: selectedStudent.id, template: `fp:${selectedStudent.id}:${selectedFinger.toLowerCase().replace(/\s+/g, "-")}` })
@@ -945,7 +951,7 @@ function App() {
     };
 
     try {
-      const response = await fetch(`${API_URL}/calendar/days`, {
+      const response = await sentinelFetch(`${API_URL}/calendar/days`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -975,7 +981,7 @@ function App() {
 
   const removeCalendarDay = async (date: string) => {
     try {
-      await fetch(`${API_URL}/calendar/days/${date}`, { method: "DELETE" });
+      await sentinelFetch(`${API_URL}/calendar/days/${date}`, { method: "DELETE" });
     } finally {
       setCalendarDays((current) => current.filter((item) => item.date !== date));
       await refreshOverview();

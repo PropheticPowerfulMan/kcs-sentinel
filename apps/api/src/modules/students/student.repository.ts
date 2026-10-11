@@ -1,5 +1,6 @@
 import type { Student, StudentDirectoryItem } from "../../core/types.js";
 import { pool } from "../../db/pool.js";
+import { loadOrbitDirectory } from "../integration/directory.js";
 
 type StudentRow = {
   id: string;
@@ -25,7 +26,35 @@ export const toDirectoryItem = (student: Student): StudentDirectoryItem => ({
   hasBiometric: Boolean(student.biometricTemplate)
 });
 
+const synchronizeOrbitStudents = async () => {
+  const people = await loadOrbitDirectory();
+  const students = people
+    .filter((person) => person.kind === "STUDENT")
+    .map((person) => ({
+      id: person.id,
+      full_name: person.fullName,
+      class_name: person.className || "Unassigned",
+      guardian_phone: person.phone || ""
+    }));
+
+  if (students.length > 0) {
+    await pool.query(
+      `
+        INSERT INTO students (id, full_name, class_name, guardian_phone)
+        SELECT item.id, item.full_name, item.class_name, item.guardian_phone
+        FROM jsonb_to_recordset($1::jsonb)
+          AS item(id TEXT, full_name TEXT, class_name TEXT, guardian_phone TEXT)
+        ON CONFLICT (id) DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          class_name = EXCLUDED.class_name,
+          guardian_phone = EXCLUDED.guardian_phone
+      `,
+      [JSON.stringify(students)]
+    );
+  }
+};
 export const listStudents = async () => {
+  await synchronizeOrbitStudents();
   const result = await pool.query<StudentRow>(
     "SELECT id, full_name, class_name, guardian_phone, biometric_template FROM students ORDER BY class_name, full_name"
   );
