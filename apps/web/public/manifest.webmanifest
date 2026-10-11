@@ -1,11 +1,12 @@
 {
+  "id": "/",
   "name": "KCS SENTINEL",
   "short_name": "SENTINEL",
   "description": "Biometric attendance and school entrance control platform for KCS campuses.",
   "theme_color": "#081120",
   "background_color": "#02050a",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "start_url": "./",
   "scope": "./",
   "categories": ["education", "security", "productivity"],
