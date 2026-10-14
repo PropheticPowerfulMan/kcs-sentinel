@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { pool } from "../../db/pool.js";
-import { loadOrbitDirectory, resolveOrbitPerson } from "../integration/directory.js";
+import { loadOrbitDirectory, resolveOrbitPersonFromCandidates } from "../integration/directory.js";
 
 const router = Router();
 const safe = (handler: (req: any, res: any, next: any) => unknown) => (req: any, res: any, next: any) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -17,7 +17,7 @@ router.post('/auth/login', safe(async (req,res) => {
   const response=await fetch(new URL('/api/auth/login',env.nexusApiUrl),{method:'POST',headers:{'content-type':'application/json','x-kcs-client':'KCS_SENTINEL'},body:JSON.stringify(payload),signal:AbortSignal.timeout(12000)});
   const body=await response.json().catch(()=>null) as any;
   if(!response.ok||!body?.data?.user)return res.status(401).json({message:body?.message||'Institutional authentication failed'});
-  const nexus=body.data.user; const person=await resolveOrbitPerson(nexus.email||nexus.accessCode||payload.identifier);
+  const nexus=body.data.user; const person=await resolveOrbitPersonFromCandidates([nexus.orbitUserId,nexus.id,nexus.email,nexus.accessCode,payload.identifier]);
   if(!person && String(nexus.role).toLowerCase()!=='admin')return res.status(403).json({message:'No active Orbit identity is linked to this account'});
   const rawRole=String(nexus.role).toLowerCase(); const role=['admin','superadmin','super_admin'].includes(rawRole)?'super_admin':['administrator','principal','school_admin'].includes(rawRole)?'school_admin':person?.kind==='STAFF'&&/guard|security|gardien/i.test(String(person?.jobTitle||'')+' '+String(person?.department||''))?'security_operator':'entity';
   const session:Session={sub:String(nexus.id),role,personId:person?.id||String(nexus.id),fullName:person?.fullName||[nexus.lastName,nexus.firstName].filter(Boolean).join(' ')};

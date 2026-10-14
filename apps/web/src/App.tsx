@@ -3,8 +3,6 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 import { SchoolLogo } from "./components/SchoolLogo";
-import { mockOverview } from "./mockOverview";
-import { mockStudents } from "./mockStudents";
 import type { AttendanceDirection, AttendanceFrequencySummary, AttendanceLedgerItem, DashboardOverview, GateScanResponse, LiveFeedItem, SchoolCalendarDay, StudentDirectoryItem, StudentDisciplinaryRegister } from "./types";
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
@@ -277,9 +275,19 @@ const getSuccessScanMessage = (direction: AttendanceDirection, duplicate: boolea
 };
 
 function App() {
-  const [overview, setOverview] = useState<DashboardOverview>(mockOverview);
-  const [students, setStudents] = useState<StudentDirectoryItem[]>(mockStudents);
-  const [status, setStatus] = useState("Booting school command center...");
+  const [overview, setOverview] = useState<DashboardOverview>({
+    campus: "KCS Smart Campus - Main Gate",
+    syncStatus: "Secure synchronization in progress",
+    storageMode: "Persistent PostgreSQL",
+    aiReadiness: {},
+    metrics: { totalStudents: 0, present: 0, absent: 0, late: 0, biometricSuccessRate: 0 },
+    liveFeed: [],
+    attendanceLog: [],
+    alerts: [],
+    futureModules: [],
+  });
+  const [students, setStudents] = useState<StudentDirectoryItem[]>([]);
+  const [status, setStatus] = useState("Securely loading the live Orbit registry...");
   const [activeView, setActiveView] = useState<ViewMode>(() => getViewFromPath(window.location.pathname));
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
@@ -288,7 +296,7 @@ function App() {
   const [unlockHolding, setUnlockHolding] = useState(false);
   const [gateState, setGateState] = useState<GateState>("idle");
   const [sensorMode, setSensorMode] = useState<SensorMode>("verify");
-  const [selectedStudentId, setSelectedStudentId] = useState<string>(mockStudents[0]?.id ?? "");
+  const [selectedStudentId, setSelectedStudentId] = useState<string>("");
   const [selectedFinger, setSelectedFinger] = useState<(typeof FINGER_OPTIONS)[number]>(FINGER_OPTIONS[0]);
   const [scanMessage, setScanMessage] = useState(getIdleScanMessage("verify", FINGER_OPTIONS[0]));
   const [scanResult, setScanResult] = useState<GateScanResponse | null>(null);
@@ -363,14 +371,11 @@ function App() {
       const overviewPayload = (await overviewResponse.json()) as DashboardOverview;
       const studentPayload = (await studentsResponse.json()) as StudentDirectoryItem[];
       setOverview(overviewPayload);
-      setStudents(studentPayload.length > 0 ? studentPayload : mockStudents);
-      setSelectedStudentId((current) => current || studentPayload[0]?.id || mockStudents[0]?.id || "");
+      setStudents(studentPayload);
+      setSelectedStudentId((current) => studentPayload.some(student => student.id === current) ? current : (studentPayload[0]?.id ?? ""));
       setStatus("Live API telemetry connected");
     } catch {
-      setOverview(mockOverview);
-      setStudents(mockStudents);
-      setSelectedStudentId((current) => current || mockStudents[0]?.id || "");
-      setStatus("Fallback scenario loaded while the backend is unavailable");
+      setStatus("Live synchronization is temporarily unavailable. Displayed records remain the last verified server data.");
     }
   };
 

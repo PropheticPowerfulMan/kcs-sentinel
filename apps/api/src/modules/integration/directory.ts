@@ -33,3 +33,12 @@ export async function resolveOrbitPerson(identifier: string) {
   const key = identifier.trim().toLowerCase();
   return (await loadOrbitDirectory()).find(person => [person.id, person.displayId, person.email, person.accessCode].some(value => value?.toLowerCase() === key)) ?? null;
 }
+
+export async function resolveOrbitPersonFromCandidates(values: Array<unknown>) {
+  const keys = new Set(values.map(value => String(value ?? "").trim().toLowerCase()).filter(Boolean));
+  if (!keys.size) return null;
+  return (await loadOrbitDirectory()).find(person =>
+    [person.id, person.displayId, person.email, person.accessCode]
+      .some(value => value && keys.has(value.trim().toLowerCase()))
+  ) ?? null;
+}

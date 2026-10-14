@@ -13,18 +13,7 @@ export const getDashboardOverview = async () => ({
   metrics: await getTodayMetrics(),
   liveFeed: await getLiveAttendanceFeed(),
   attendanceLog: await getAttendanceLedger(),
-  alerts: [
-    {
-      level: "info",
-      title: "Biometric lane stable",
-      detail: "Average fingerprint verification time is 0.9s over the last 30 minutes."
-    },
-    {
-      level: "warning",
-      title: "Late arrivals rising",
-      detail: "Late attendance is 12% above the weekly average."
-    }
-  ],
+  alerts: [],
   futureModules: [
     "Staff attendance",
     "Visitor access control",
