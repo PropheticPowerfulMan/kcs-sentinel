@@ -11,18 +11,18 @@ import {
   updateStudentBiometricTemplate
 } from "../students/student.repository.js";
 
-const encryptTemplate = (template: string) =>
-  crypto.createHmac("sha256", env.biometricSecret).update(template).digest("hex");
+const TEMPLATE_VERSION = "v1";
+const protectTemplate = (identityId: string, template: string) =>
+  `${TEMPLATE_VERSION}:${crypto.createHmac("sha256", env.biometricSecret).update(identityId).update("\0").update(template).digest("hex")}`;
 
-const compareTemplates = (candidate: string, storedTemplate: string) => {
-  if (candidate === storedTemplate) {
-    return 0.99;
+const compareTemplates = (identityId: string, candidate: string, storedTemplate: string) => {
+  const protectedCandidate = protectTemplate(identityId, candidate);
+  if (storedTemplate.startsWith(`${TEMPLATE_VERSION}:`)) {
+    const left = Buffer.from(candidate.startsWith(`${TEMPLATE_VERSION}:`) ? candidate : protectedCandidate);
+    const right = Buffer.from(storedTemplate);
+    return left.length === right.length && crypto.timingSafeEqual(left, right) ? 0.99 : 0.18;
   }
-
-  const encryptedCandidate = encryptTemplate(candidate);
-  const encryptedStored = encryptTemplate(storedTemplate);
-
-  return encryptedCandidate === encryptedStored ? 0.97 : 0.18;
+  return candidate === storedTemplate ? 0.96 : 0.18;
 };
 
 const isLateArrival = (timestamp: Date) => timestamp.getHours() > 8 || (timestamp.getHours() === 8 && timestamp.getMinutes() >= 1);
@@ -41,7 +41,7 @@ const resolveEnrollmentTemplate = async (rawTemplate?: string) => {
 
 export const enrollFingerprint = async (studentId: string, rawTemplate?: string) => {
   const template = await resolveEnrollmentTemplate(rawTemplate);
-  const student = await updateStudentBiometricTemplate(studentId, template);
+  const student = await updateStudentBiometricTemplate(studentId, protectTemplate(studentId, template));
 
   if (!student) {
     throw new Error("Student not found");
@@ -57,11 +57,15 @@ export const verifyFingerprint = async (
 ): Promise<BiometricMatchResult & { duplicate: boolean; eventType: AttendanceDirection; entryTimestamp?: string; exitTimestamp?: string | null }> => {
   const students = await listStudentsWithBiometrics();
   const student = students
-    .map((entry: Student) => ({ entry, confidence: compareTemplates(probeTemplate, entry.biometricTemplate ?? "") }))
+    .map((entry: Student) => ({ entry, confidence: compareTemplates(entry.id, probeTemplate, entry.biometricTemplate ?? "") }))
     .sort((left: { entry: Student; confidence: number }, right: { entry: Student; confidence: number }) => right.confidence - left.confidence)[0];
 
   if (!student || student.confidence < 0.9 || !student.entry.biometricTemplate) {
     return { matched: false, confidence: student?.confidence ?? 0, duplicate: false, message: "Fingerprint not recognized", eventType: direction };
+  }
+
+  if (!student.entry.biometricTemplate.startsWith(`${TEMPLATE_VERSION}:`)) {
+    await updateStudentBiometricTemplate(student.entry.id, protectTemplate(student.entry.id, probeTemplate));
   }
 
   const todayAttendance = await getAttendanceForToday(student.entry.id);

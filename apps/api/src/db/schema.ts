@@ -47,6 +47,13 @@ export const databaseSchema = `
   );
   CREATE INDEX IF NOT EXISTS sentinel_movements_person_time_idx ON sentinel_movements(person_id, occurred_at DESC);
   CREATE INDEX IF NOT EXISTS sentinel_movements_time_idx ON sentinel_movements(occurred_at DESC);
+  CREATE TABLE IF NOT EXISTS sentinel_biometric_identities (
+    identity_id TEXT PRIMARY KEY,
+    template_hash TEXT NOT NULL,
+    enrolled_by TEXT NOT NULL,
+    enrolled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
   CREATE TABLE IF NOT EXISTS sentinel_justifications (
     id UUID PRIMARY KEY, person_id TEXT NOT NULL,
     incident_type TEXT NOT NULL CHECK (incident_type IN ('ABSENCE','LATE')),

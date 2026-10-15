@@ -5,12 +5,15 @@ import { z } from "zod";
 import { env } from "../../config/env.js";
 import { pool } from "../../db/pool.js";
 import { loadOrbitDirectory, resolveOrbitPersonFromCandidates } from "../integration/directory.js";
+import { captureFingerprintTemplate, isLiveBiometricCaptureEnabled } from "../biometrics/biometric.provider.js";
 
 const router = Router();
 const safe = (handler: (req: any, res: any, next: any) => unknown) => (req: any, res: any, next: any) => Promise.resolve(handler(req, res, next)).catch(next);
 type Session = { sub: string; role: string; personId: string; fullName: string };
 const auth = (req: any, res: any, next: any) => { try { const token=String(req.headers.authorization||'').replace(/^Bearer /,''); req.sentinelUser=jwt.verify(token,env.jwtSecret) as Session; next(); } catch { res.status(401).json({message:'Invalid or expired institutional session'}); } };
 const manager = (req:any,res:any,next:any) => ['admin','super_admin','school_admin','security_operator'].includes(String(req.sentinelUser?.role).toLowerCase()) ? next() : res.status(403).json({message:'Guard or administrator access required'});
+const protectBiometric = (identityId:string,template:string) => 'v1:' + crypto.createHmac('sha256',env.biometricSecret).update(identityId).update('\0').update(template).digest('hex');
+const secureEqual = (left:string,right:string) => { const a=Buffer.from(left),b=Buffer.from(right); return a.length===b.length&&crypto.timingSafeEqual(a,b); };
 
 router.post('/auth/login', safe(async (req,res) => {
   const payload=z.object({identifier:z.string().trim().min(2),password:z.string().min(1)}).parse(req.body);
@@ -25,6 +28,28 @@ router.post('/auth/login', safe(async (req,res) => {
 }));
 router.get('/me',auth,safe(async(req:any,res)=>res.json({user:req.sentinelUser,statistics:await statistics(req.sentinelUser.personId)})));
 router.get('/directory',auth,manager,safe(async(req,res)=>{const q=String(req.query.q||'').trim().toLowerCase();const people=await loadOrbitDirectory(req.query.refresh==='true');res.json({people:(q?people.filter(p=>[p.fullName,p.email,p.displayId,p.className,p.jobTitle].some(v=>v?.toLowerCase().includes(q))):people).slice(0,250)});}));
+router.post('/biometrics/orbit/:personId/enroll',auth,manager,safe(async(req:any,res)=>{
+  const person=(await loadOrbitDirectory()).find(item=>item.id===req.params.personId);
+  if(!person)return res.status(404).json({message:'Active Orbit identity not found'});
+  const input=z.object({template:z.string().min(3).optional()}).parse(req.body??{});
+  const template=isLiveBiometricCaptureEnabled()?await captureFingerprintTemplate('enroll'):input.template;
+  if(!template)return res.status(409).json({message:'Connect the fingerprint bridge or provide a scanner template'});
+  await pool.query('INSERT INTO sentinel_biometric_identities(identity_id,template_hash,enrolled_by) VALUES($1,$2,$3) ON CONFLICT(identity_id) DO UPDATE SET template_hash=EXCLUDED.template_hash,enrolled_by=EXCLUDED.enrolled_by,updated_at=NOW()',[person.id,protectBiometric(person.id,template),req.sentinelUser.sub]);
+  res.status(201).json({identityId:person.id,fullName:person.fullName,kind:person.kind,enrolled:true,provider:isLiveBiometricCaptureEnabled()?'http-bridge':'authorized-template'});
+}));
+router.post('/biometrics/orbit/identify',auth,manager,safe(async(req:any,res)=>{
+  const input=z.object({template:z.string().min(3).optional(),direction:z.enum(['ENTRY','EXIT']).default('ENTRY'),gate:z.string().default('Main Gate')}).parse(req.body??{});
+  const template=isLiveBiometricCaptureEnabled()?await captureFingerprintTemplate(input.direction==='EXIT'?'exit':'verify'):input.template;
+  if(!template)return res.status(409).json({message:'Connect the fingerprint bridge or provide a scanner template'});
+  const registered=await pool.query('SELECT identity_id,template_hash FROM sentinel_biometric_identities');
+  const match=registered.rows.find(row=>secureEqual(protectBiometric(row.identity_id,template),row.template_hash));
+  if(!match)return res.status(404).json({message:'Fingerprint not recognized'});
+  const person=(await loadOrbitDirectory()).find(item=>item.id===match.identity_id);
+  if(!person)return res.status(409).json({message:'Fingerprint is no longer linked to an active Orbit identity'});
+  const id=crypto.randomUUID();
+  await pool.query('INSERT INTO sentinel_movements(id,person_id,person_type,direction,gate,source,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,person.id,'ORBIT',input.direction,input.gate,'BIOMETRIC',req.sentinelUser.sub]);
+  res.json({matched:true,movementId:id,person:{id:person.id,fullName:person.fullName,kind:person.kind,displayId:person.displayId},direction:input.direction,gate:input.gate,occurredAt:new Date().toISOString()});
+}));
 router.post('/visitors',auth,manager,safe(async(req,res)=>{const p=z.object({fullName:z.string().min(2),phone:z.string().optional(),organization:z.string().optional(),purpose:z.string().min(2),hostName:z.string().min(2),idDocument:z.string().optional()}).parse(req.body);const id=crypto.randomUUID();await pool.query('INSERT INTO sentinel_visitors(id,full_name,phone,organization,purpose,host_name,id_document) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,p.fullName,p.phone||null,p.organization||null,p.purpose,p.hostName,p.idDocument||null]);res.status(201).json({id,...p});}));
 router.post('/movements',auth,manager,safe(async(req:any,res)=>{const p=z.object({personId:z.string().min(1),personType:z.enum(['ORBIT','VISITOR']),direction:z.enum(['ENTRY','EXIT']),gate:z.string().default('Main Gate'),source:z.enum(['BIOMETRIC','QR','MANUAL']).default('MANUAL')}).parse(req.body);const id=crypto.randomUUID();await pool.query('INSERT INTO sentinel_movements(id,person_id,person_type,direction,gate,source,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,p.personId,p.personType,p.direction,p.gate,p.source,req.sentinelUser.sub]);res.status(201).json({id,...p,timestamp:new Date().toISOString()});}));
 router.get('/movements/live',auth,manager,safe(async(_req,res)=>{const r=await pool.query('SELECT * FROM sentinel_movements ORDER BY occurred_at DESC LIMIT 200');res.json(r.rows);}));
