@@ -1453,8 +1453,8 @@ function App() {
     }
 
     return (
-      <aside className="hidden md:block">
-        <div className="sticky top-6 rounded-[28px] border border-white/10 bg-white/[0.05] p-4 shadow-glow backdrop-blur-xl">
+      <aside className="sentinel-side-nav hidden md:block">
+        <div className="sticky top-[88px] rounded-[22px] border border-white/10 bg-white/[0.05] p-3 shadow-glow backdrop-blur-xl">
           <div className="px-3 pb-4">
             <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Navigation</div>
             <div className="mt-2 text-sm leading-6 text-slate-300">Passez d'une page métier à l'autre sans faire défiler tout l'écran.</div>
@@ -1467,7 +1467,7 @@ function App() {
                   key={item.key}
                   type="button"
                   onClick={() => navigateToView(item.key)}
-                  className={`w-full rounded-3xl border px-4 py-4 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_18px_40px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
+                  className={`sentinel-nav-item w-full rounded-xl border px-3 py-3 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_18px_40px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
                 >
                   <div className={`text-[11px] uppercase tracking-[0.22em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
                   <div className="mt-2 text-sm font-semibold">{item.label}</div>
@@ -1486,7 +1486,7 @@ function App() {
     }
 
     return (
-      <nav className="fixed inset-x-3 bottom-3 z-40 rounded-[28px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl md:hidden">
+      <nav className="sentinel-mobile-nav fixed inset-x-3 bottom-3 z-40 rounded-[20px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl md:hidden">
         <div className="grid grid-cols-5 gap-2">
           {navigationItems.map((item) => {
             const isActive = activeView === item.key;
@@ -1508,9 +1508,9 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(143,123,255,0.22),transparent_24%),radial-gradient(circle_at_top_right,rgba(48,216,255,0.22),transparent_26%),linear-gradient(180deg,#030711_0%,#07101d_36%,#02050a_100%)] text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-7xl px-4 py-4 pb-28 sm:px-6 sm:py-6 sm:pb-10 lg:px-10"}`}>
-        <header className="relative overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl sm:p-8">
+    <div className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
+      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-[1600px] px-3 py-3 pb-28 sm:px-5 sm:pb-10 lg:px-6"}`}>
+        <header className="sentinel-command-header sticky top-0 z-30 overflow-hidden rounded-[22px] border border-white/10 bg-white/5 p-4 shadow-glow backdrop-blur-xl sm:p-5">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
           <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex flex-col gap-4">
@@ -1568,7 +1568,7 @@ function App() {
           </div>
         </header>
 
-        <div className={`mt-6 ${kioskMode ? "" : "md:grid md:grid-cols-[220px_minmax(0,1fr)] md:gap-6 lg:grid-cols-[240px_minmax(0,1fr)]"}`}>
+        <div className={`sentinel-workspace mt-4 ${kioskMode ? "" : "md:grid md:grid-cols-[210px_minmax(0,1fr)] md:gap-4 lg:grid-cols-[220px_minmax(0,1fr)]"}`}>
           {renderDesktopNavigation()}
 
           <div className="min-w-0">
