@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,20 +6,20 @@
 
 :root {
   color-scheme: dark;
-  font-family: "Space Grotesk", sans-serif;
-  background: #02050a;
+  font-family: "Manrope", Inter, sans-serif;
+  background: #031d32;
   -webkit-tap-highlight-color: transparent;
 }
 
 html {
-  background: #02050a;
+  background: #031d32;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #02050a;
+  background: linear-gradient(145deg,#041d32,#063c65);
   user-select: none;
 }
 
@@ -43,5 +43,9 @@ button {
 }
 
 .font-display {
-  font-family: "Space Grotesk", sans-serif;
+  font-family: "Manrope", Inter, sans-serif;
 }
+
+/* Kitchen-derived visual grammar with Sentinel's security teal identity. */
+.sentinel-kitchen-surface{background:linear-gradient(145deg,#052c4e,#063f68);color:#eaf8ff}
+@media(max-width:767px){:root{font-size:14px}button{font-size:.72rem}small{font-size:.62rem}}

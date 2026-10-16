@@ -5,12 +5,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        surface: "#06101f",
-        panel: "#0b1930",
+        surface: "#052c4e",
+        panel: "#073d5e",
         ink: "#ecf8ff",
-        cyan: "#30d8ff",
-        neon: "#8f7bff",
-        signal: "#1ce7b0"
+        cyan: "#20b8d8",
+        neon: "#27c6a7",
+        signal: "#f2b84b"
       },
       boxShadow: {
         glow: "0 0 40px rgba(48, 216, 255, 0.18)"
