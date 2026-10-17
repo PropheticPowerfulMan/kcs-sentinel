@@ -72,4 +72,26 @@ export const databaseSchema = `
     reviewer_id TEXT, review_note TEXT, reviewed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
-  CREATE INDEX IF NOT EXISTS sentinel_justifications_person_date_idx ON sentinel_justifications(person_id, incident_date DESC);`;
+  CREATE INDEX IF NOT EXISTS sentinel_justifications_person_date_idx ON sentinel_justifications(person_id, incident_date DESC);
+
+  CREATE TABLE IF NOT EXISTS sentinel_alerts (
+    id UUID PRIMARY KEY,
+    event_key TEXT NOT NULL UNIQUE,
+    person_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL CHECK (alert_type IN ('LATE')),
+    title_fr TEXT NOT NULL,
+    title_en TEXT NOT NULL,
+    message_fr TEXT NOT NULL,
+    message_en TEXT NOT NULL,
+    incident_date DATE NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    delivery_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (delivery_status IN ('PENDING','DELIVERED','RETRY_REQUIRED')),
+    email_status TEXT NOT NULL DEFAULT 'PENDING',
+    sms_status TEXT NOT NULL DEFAULT 'PENDING',
+    delivery_detail TEXT,
+    delivery_attempts INTEGER NOT NULL DEFAULT 0,
+    delivered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS sentinel_alerts_person_time_idx ON sentinel_alerts(person_id, occurred_at DESC);`;

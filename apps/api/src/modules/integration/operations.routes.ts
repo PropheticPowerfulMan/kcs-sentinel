@@ -6,6 +6,8 @@ import { env } from "../../config/env.js";
 import { pool } from "../../db/pool.js";
 import { loadOrbitDirectory, resolveOrbitPersonFromCandidates } from "../integration/directory.js";
 import { captureFingerprintTemplate, isLiveBiometricCaptureEnabled } from "../biometrics/biometric.provider.js";
+import { attendancePolicyFor, isLateArrivalFor, kinshasaClockMinutes } from "../attendance/attendance-policy.js";
+import { createLateAlert, deliverLateAlert, listAlerts } from "../notifications/late-alert.service.js";
 
 const router = Router();
 const safe = (handler: (req: any, res: any, next: any) => unknown) => (req: any, res: any, next: any) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -15,10 +17,59 @@ const manager = (req:any,res:any,next:any) => ['admin','super_admin','school_adm
 const protectBiometric = (identityId:string,template:string) => 'v1:' + crypto.createHmac('sha256',env.biometricSecret).update(identityId).update('\0').update(template).digest('hex');
 const secureEqual = (left:string,right:string) => { const a=Buffer.from(left),b=Buffer.from(right); return a.length===b.length&&crypto.timingSafeEqual(a,b); };
 const deviceContextSchema = z.object({
-  timezone: z.string().trim().min(1).max(120).default("UTC"),
+  timezone: z.string().trim().min(1).max(120).default("Africa/Kinshasa"),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional()
-}).default({ timezone: "UTC" });
+}).default({ timezone: "Africa/Kinshasa" });
+
+async function recordMovement(input: {
+  personId: string;
+  personType: "ORBIT" | "VISITOR";
+  direction: "ENTRY" | "EXIT";
+  gate: string;
+  source: "BIOMETRIC" | "QR" | "MANUAL";
+  recordedBy: string;
+  timezone: string;
+  latitude?: number;
+  longitude?: number;
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const id = crypto.randomUUID();
+    const recorded = await client.query<{ occurred_at: Date }>(
+      `INSERT INTO sentinel_movements(
+        id,person_id,person_type,direction,gate,source,recorded_by,observed_timezone,observed_latitude,observed_longitude
+       ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING occurred_at`,
+      [id, input.personId, input.personType, input.direction, input.gate, input.source, input.recordedBy, input.timezone, input.latitude ?? null, input.longitude ?? null],
+    );
+    const occurredAt = new Date(recorded.rows[0]?.occurred_at || Date.now());
+    let alert: Awaited<ReturnType<typeof createLateAlert>> = null;
+    let person = null;
+    if (input.personType === "ORBIT") {
+      person = (await loadOrbitDirectory()).find((item) => item.id === input.personId) ?? null;
+      if (!person) throw new Error("Active Orbit identity not found");
+      if (input.direction === "ENTRY" && isLateArrivalFor(person, occurredAt)) {
+        alert = await createLateAlert(client, person, occurredAt);
+      }
+    }
+    await client.query("COMMIT");
+    if (alert) void deliverLateAlert(alert);
+    return {
+      id,
+      occurredAt: occurredAt.toISOString(),
+      clockAuthority: "server",
+      late: Boolean(person && input.direction === "ENTRY" && isLateArrivalFor(person, occurredAt)),
+      attendancePolicy: attendancePolicyFor(person),
+      alertCreated: Boolean(alert),
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 router.post('/auth/login', safe(async (req,res) => {
   const payload=z.object({identifier:z.string().trim().min(2),password:z.string().min(1)}).parse(req.body);
@@ -31,7 +82,11 @@ router.post('/auth/login', safe(async (req,res) => {
   const session:Session={sub:String(nexus.id),role,personId:person?.id||String(nexus.id),fullName:person?.fullName||[nexus.lastName,nexus.firstName].filter(Boolean).join(' ')};
   res.json({token:jwt.sign(session,env.jwtSecret,{expiresIn:'12h'}),user:session});
 }));
-router.get('/me',auth,safe(async(req:any,res)=>res.json({user:req.sentinelUser,statistics:await statistics(req.sentinelUser.personId)})));
+router.get('/me',auth,safe(async(req:any,res)=>{
+  const person=(await loadOrbitDirectory()).find(item=>item.id===req.sentinelUser.personId)??null;
+  res.json({user:req.sentinelUser,statistics:await statistics(req.sentinelUser.personId),attendancePolicy:attendancePolicyFor(person),alerts:await listAlerts(req.sentinelUser.personId)});
+}));
+router.get('/alerts',auth,safe(async(req:any,res)=>res.json({alerts:await listAlerts(req.sentinelUser.personId)})));
 router.get('/directory',auth,manager,safe(async(req,res)=>{const q=String(req.query.q||'').trim().toLowerCase();const people=await loadOrbitDirectory(req.query.refresh==='true');res.json({people:(q?people.filter(p=>[p.fullName,p.email,p.displayId,p.className,p.jobTitle].some(v=>v?.toLowerCase().includes(q))):people).slice(0,250)});}));
 router.get('/time/reference',auth,safe(async(req,res)=>{
   const result=await pool.query<{server_utc:string;kinshasa_time:string}>("SELECT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS server_utc, TO_CHAR(NOW() AT TIME ZONE 'Africa/Kinshasa', 'YYYY-MM-DD HH24:MI:SS') AS kinshasa_time");
@@ -55,14 +110,13 @@ router.post('/biometrics/orbit/identify',auth,manager,safe(async(req:any,res)=>{
   if(!match)return res.status(404).json({message:'Fingerprint not recognized'});
   const person=(await loadOrbitDirectory()).find(item=>item.id===match.identity_id);
   if(!person)return res.status(409).json({message:'Fingerprint is no longer linked to an active Orbit identity'});
-  const id=crypto.randomUUID();
-  const recorded=await pool.query<{occurred_at:string}>("INSERT INTO sentinel_movements(id,person_id,person_type,direction,gate,source,recorded_by,observed_timezone) VALUES($1,$2,$3,$4,$5,$6,$7,'Africa/Kinshasa') RETURNING TO_CHAR(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS occurred_at",[id,person.id,'ORBIT',input.direction,input.gate,'BIOMETRIC',req.sentinelUser.sub]);
-  res.json({matched:true,movementId:id,person:{id:person.id,fullName:person.fullName,kind:person.kind,displayId:person.displayId},direction:input.direction,gate:input.gate,occurredAt:recorded.rows[0]?.occurred_at,clockAuthority:'server'});
+  const recorded=await recordMovement({personId:person.id,personType:'ORBIT',direction:input.direction,gate:input.gate,source:'BIOMETRIC',recordedBy:req.sentinelUser.sub,timezone:'Africa/Kinshasa'});
+  res.json({matched:true,movementId:recorded.id,person:{id:person.id,fullName:person.fullName,kind:person.kind,displayId:person.displayId},direction:input.direction,gate:input.gate,...recorded});
 }));
 router.get('/visitors',auth,manager,safe(async(req,res)=>{const q=String(req.query.q||'').trim();const values:any[]=[];let where='';if(q){values.push(`%${q}%`);where='WHERE v.full_name ILIKE $1 OR v.organization ILIKE $1 OR v.host_name ILIKE $1 OR v.purpose ILIKE $1';}const result=await pool.query(`SELECT v.id,v.full_name,v.last_name,v.middle_name,v.first_name,v.phone,v.organization,v.purpose,v.host_name,v.id_document,v.created_at,COUNT(m.id)::int AS movement_count,COUNT(m.id) FILTER (WHERE m.direction='ENTRY')::int AS visit_count,MAX(m.occurred_at) AS last_visit_at FROM sentinel_visitors v LEFT JOIN sentinel_movements m ON m.person_id=v.id AND m.person_type='VISITOR' ${where} GROUP BY v.id ORDER BY COALESCE(MAX(m.occurred_at),v.created_at) DESC LIMIT 250`,values);res.json({visitors:result.rows});}));
 router.get('/visitors/:id/history',auth,manager,safe(async(req,res)=>{const visitor=await pool.query('SELECT * FROM sentinel_visitors WHERE id=$1',[req.params.id]);if(!visitor.rows[0])return res.status(404).json({message:'Visitor not found'});const movements=await pool.query("SELECT id,direction,gate,source,occurred_at,observed_timezone FROM sentinel_movements WHERE person_id=$1 AND person_type='VISITOR' ORDER BY occurred_at DESC LIMIT 1000",[req.params.id]);res.json({visitor:visitor.rows[0],movements:movements.rows,totalVisits:movements.rows.filter(row=>row.direction==='ENTRY').length});}));
 router.post('/visitors',auth,manager,safe(async(req:any,res)=>{const p=z.object({lastName:z.string().trim().min(2),middleName:z.string().trim().optional(),firstName:z.string().trim().min(2),phone:z.string().trim().optional(),organization:z.string().trim().optional(),purpose:z.string().trim().min(2),hostName:z.string().trim().min(2),idDocument:z.string().trim().optional(),gate:z.string().trim().default('Main Gate'),deviceContext:deviceContextSchema}).parse(req.body);const id=crypto.randomUUID();const movementId=crypto.randomUUID();const fullName=[p.lastName,p.middleName,p.firstName].filter(Boolean).join(' ');const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO sentinel_visitors(id,full_name,last_name,middle_name,first_name,phone,organization,purpose,host_name,id_document) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,fullName,p.lastName,p.middleName||null,p.firstName,p.phone||null,p.organization||null,p.purpose,p.hostName,p.idDocument||null]);const movement=await client.query<{occurred_at:string}>("INSERT INTO sentinel_movements(id,person_id,person_type,direction,gate,source,recorded_by,observed_timezone,observed_latitude,observed_longitude) VALUES($1,$2,'VISITOR','ENTRY',$3,'MANUAL',$4,$5,$6,$7) RETURNING occurred_at::text",[movementId,id,p.gate,req.sentinelUser.sub,p.deviceContext.timezone,p.deviceContext.latitude??null,p.deviceContext.longitude??null]);await client.query('COMMIT');res.status(201).json({id,fullName,...p,movementId,enteredAt:movement.rows[0]?.occurred_at});}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}));
-router.post('/movements',auth,manager,safe(async(req:any,res)=>{const p=z.object({personId:z.string().min(1),personType:z.enum(['ORBIT','VISITOR']),direction:z.enum(['ENTRY','EXIT']),gate:z.string().default('Main Gate'),source:z.enum(['BIOMETRIC','QR','MANUAL']).default('MANUAL'),deviceContext:deviceContextSchema}).parse(req.body);const id=crypto.randomUUID();const result=await pool.query<{occurred_at:string}>('INSERT INTO sentinel_movements(id,person_id,person_type,direction,gate,source,recorded_by,observed_timezone,observed_latitude,observed_longitude) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING occurred_at::text',[id,p.personId,p.personType,p.direction,p.gate,p.source,req.sentinelUser.sub,p.deviceContext.timezone,p.deviceContext.latitude??null,p.deviceContext.longitude??null]);res.status(201).json({id,...p,occurredAt:result.rows[0]?.occurred_at,clockAuthority:'server'});}));
+router.post('/movements',auth,manager,safe(async(req:any,res)=>{const p=z.object({personId:z.string().min(1),personType:z.enum(['ORBIT','VISITOR']),direction:z.enum(['ENTRY','EXIT']),gate:z.string().default('Main Gate'),source:z.enum(['BIOMETRIC','QR','MANUAL']).default('MANUAL'),deviceContext:deviceContextSchema}).parse(req.body);const result=await recordMovement({personId:p.personId,personType:p.personType,direction:p.direction,gate:p.gate,source:p.source,recordedBy:req.sentinelUser.sub,timezone:p.deviceContext.timezone,latitude:p.deviceContext.latitude,longitude:p.deviceContext.longitude});res.status(201).json({...p,...result});}));
 router.get('/movements/live',auth,manager,safe(async(_req,res)=>{const r=await pool.query('SELECT * FROM sentinel_movements ORDER BY occurred_at DESC LIMIT 200');res.json(r.rows);}));
 router.post('/justifications',auth,safe(async(req:any,res)=>{const p=z.object({incidentType:z.enum(['ABSENCE','LATE']),incidentDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),reason:z.string().trim().min(10).max(2000),evidenceUrl:z.string().url().optional()}).parse(req.body);const id=crypto.randomUUID();await pool.query('INSERT INTO sentinel_justifications(id,person_id,incident_type,incident_date,reason,evidence_url) VALUES($1,$2,$3,$4,$5,$6)',[id,req.sentinelUser.personId,p.incidentType,p.incidentDate,p.reason,p.evidenceUrl||null]);res.status(201).json({id,personId:req.sentinelUser.personId,...p,status:'PENDING'});}));
 router.get('/justifications',auth,safe(async(req:any,res)=>{const canManage=['admin','super_admin','school_admin','security_operator'].includes(String(req.sentinelUser.role).toLowerCase());const target=canManage&&req.query.personId?String(req.query.personId):req.sentinelUser.personId;const r=await pool.query('SELECT * FROM sentinel_justifications WHERE person_id=$1 ORDER BY incident_date DESC,created_at DESC LIMIT 250',[target]);res.json({justifications:r.rows});}));
@@ -84,12 +138,14 @@ router.get('/reports/operations',auth,manager,safe(async(req,res)=>{
 }));
 router.get('/reports/:personId',auth,safe(async(req:any,res)=>{if(req.sentinelUser.role==='entity'&&req.sentinelUser.personId!==req.params.personId)return res.status(403).json({message:'You may only view your own attendance'});const range=z.object({from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),to:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()}).parse(req.query);if((range.from&&!range.to)||(!range.from&&range.to))return res.status(400).json({message:'Both from and to dates are required'});if(range.from&&range.to&&range.from>range.to)return res.status(400).json({message:'Invalid report date range'});res.json(await statistics(req.params.personId,range.from,range.to));}));
 async function statistics(personId:string,reportFrom?:string,reportTo?:string){
+  const person=(await loadOrbitDirectory()).find(item=>item.id===personId)??null;
+  const policy=attendancePolicyFor(person);
   const result=await pool.query(`SELECT occurred_at,direction,gate,source FROM sentinel_movements WHERE person_id=$1 ORDER BY occurred_at DESC LIMIT 5000`,[personId]);
   const now=new Date();
   const schoolTimezone='Africa/Kinshasa';
   const localParts=(date:Date)=>Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:schoolTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));
   const localDateKey=(date:Date)=>{const parts=localParts(date);return `${parts.year}-${parts.month}-${parts.day}`;};
-  const localClockMinutes=(date:Date)=>{const parts=localParts(date);return Number(parts.hour)*60+Number(parts.minute);};
+  const localClockMinutes=(date:Date)=>kinshasaClockMinutes(date);
   const windows=[['daily',1],['weekly',7],['monthly',31],['yearly',366]] as const;
   const rows=result.rows.map(row=>({...row,occurredAt:new Date(row.occurred_at)})).filter(row=>Number.isFinite(row.occurredAt.getTime()));
   const summarize=(days:number,exactRange?:{from:string;to:string})=>{
@@ -104,7 +160,7 @@ async function statistics(personId:string,reportFrom?:string,reportTo?:string){
       const exits=events.filter(event=>event.direction==='EXIT').sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime());
       const firstEntry=entries[0]?.occurredAt??null; const lastExit=exits.at(-1)?.occurredAt??null;
       const durationMinutes=firstEntry&&lastExit&&lastExit>firstEntry?Math.round((lastExit.getTime()-firstEntry.getTime())/60000):null;
-      const late=Boolean(firstEntry&&localClockMinutes(firstEntry)>450);
+      const late=Boolean(firstEntry&&policy.lateAfterMinutes!==null&&localClockMinutes(firstEntry)>policy.lateAfterMinutes);
       return {date,firstEntry:firstEntry?.toISOString()??null,lastExit:lastExit?.toISOString()??null,durationMinutes,late,gate:events[0]?.gate??null,source:events[0]?.source??null};
     });
     const arrivalMinutes=dayDetails.filter(day=>day.firstEntry).map(day=>localClockMinutes(new Date(day.firstEntry!)));
@@ -120,6 +176,6 @@ async function statistics(personId:string,reportFrom?:string,reportTo?:string){
     const previousDays=new Set(previous.map(row=>localDateKey(row.occurredAt))).size;
     return {entries:current.filter(row=>row.direction==='ENTRY').length,exits:current.filter(row=>row.direction==='EXIT').length,attendanceDays,completeDays:dayDetails.filter(day=>day.firstEntry&&day.lastExit).length,lateDays,punctualityRate:attendanceDays?Number((((attendanceDays-lateDays)/attendanceDays)*100).toFixed(1)):0,presenceRate:expectedSchoolDays?Number((Math.min(attendanceDays/expectedSchoolDays,1)*100).toFixed(1)):0,averageArrival:formatClock(average(arrivalMinutes)),averageDeparture:formatClock(average(departureMinutes)),totalPresenceMinutes:durations.reduce((sum,value)=>sum+value,0),averagePresenceMinutes:average(durations)??0,trendDays:attendanceDays-previousDays,dayDetails,movements:current.map(({occurredAt,...row})=>({...row,occurred_at:occurredAt.toISOString()}))};
   };
-  return {personId,generatedAt:now.toISOString(),timezone:schoolTimezone,periods:Object.fromEntries(windows.map(([name,days])=>[name,summarize(days)])),...(reportFrom&&reportTo?{custom:{from:reportFrom,to:reportTo,...summarize(Math.max(1,Math.floor((new Date(reportTo).getTime()-new Date(reportFrom).getTime())/86400000)+1),{from:reportFrom,to:reportTo})}}:{})};
+  return {personId,generatedAt:now.toISOString(),timezone:schoolTimezone,attendancePolicy:policy,periods:Object.fromEntries(windows.map(([name,days])=>[name,summarize(days)])),...(reportFrom&&reportTo?{custom:{from:reportFrom,to:reportTo,...summarize(Math.max(1,Math.floor((new Date(reportTo).getTime()-new Date(reportFrom).getTime())/86400000)+1),{from:reportFrom,to:reportTo})}}:{})};
 }
 export default router;

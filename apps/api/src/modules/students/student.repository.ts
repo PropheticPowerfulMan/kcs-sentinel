@@ -18,6 +18,16 @@ const mapStudent = (row: StudentRow): Student => ({
   biometricTemplate: row.biometric_template ?? undefined
 });
 
+const normalizeClassName = (raw: string | null | undefined) => {
+  const value = String(raw || "").trim().replace(/\s+/g, " ");
+  const kindergarten = value.match(/\bk\s*([3-5])\b/i);
+  if (kindergarten) return `K${kindergarten[1]}`;
+  const grade = value.match(/grade\s*(\d{1,2})/i);
+  if (!grade) return value || "Unassigned";
+  const section = value.match(/grade\s*\d{1,2}\s*(?:-|section)?\s*([A-Z])\s*$/i)?.[1];
+  return `Grade ${Number(grade[1])}${section ? ` ${section.toUpperCase()}` : ""}`;
+};
+
 export const toDirectoryItem = (student: Student): StudentDirectoryItem => ({
   id: student.id,
   fullName: student.fullName,
@@ -27,13 +37,15 @@ export const toDirectoryItem = (student: Student): StudentDirectoryItem => ({
 });
 
 const synchronizeOrbitStudents = async () => {
-  const people = await loadOrbitDirectory();
+  // Force a fresh authoritative Orbit read so an entity edit propagates to
+  // Sentinel immediately instead of waiting for the directory cache window.
+  const people = await loadOrbitDirectory(true);
   const students = people
     .filter((person) => person.kind === "STUDENT")
     .map((person) => ({
       id: person.id,
       full_name: person.fullName,
-      class_name: person.className || "Unassigned",
+      class_name: normalizeClassName(person.className),
       guardian_phone: person.phone || ""
     }));
 

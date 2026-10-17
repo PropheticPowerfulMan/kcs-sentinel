@@ -152,6 +152,22 @@ button {
 @media(min-width:768px){
   .sentinel-side-nav{align-self:stretch}
 }
+@media(min-width:768px) and (max-width:1180px){
+  :root{font-size:14px}
+  .sentinel-command-header{position:sticky!important;top:0!important;z-index:45;padding:.75rem 1rem!important}
+  .sentinel-workspace{grid-template-columns:148px minmax(0,1fr)!important}
+  .sentinel-side-nav>div{top:76px!important;min-height:calc(100dvh - 84px)!important;padding:.45rem!important}
+  .sentinel-nav-item{min-height:48px;padding:.55rem .6rem!important}
+  .sentinel-nav-item [class*="tracking-"]{letter-spacing:.08em!important}
+  .sentinel-workspace main{padding:1rem!important}
+  .sentinel-workspace section[class*="rounded"]{border-radius:20px!important}
+  .sentinel-workspace :is(input,select,textarea,button){min-height:44px}
+  .sentinel-workspace :is(td,th){padding:.65rem!important}
+  .sentinel-workspace .text-4xl{font-size:2rem!important}
+  .sentinel-workspace .text-3xl{font-size:1.65rem!important}
+  .sentinel-workspace .text-2xl{font-size:1.3rem!important}
+  .sentinel-workspace [class*="tracking-"]{letter-spacing:.11em!important}
+}
 @media(max-width:767px){
   :root{font-size:13px}
   button,input,select,textarea{font-size:.78rem}

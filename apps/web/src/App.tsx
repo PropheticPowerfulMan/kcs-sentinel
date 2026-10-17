@@ -26,7 +26,7 @@ type BeforeInstallPromptEvent = Event & {
   }>;
 };
 
-type ViewMode = "dashboard" | "gate" | "liveFeed" | "disciplinary" | "attendance";
+type ViewMode = "dashboard" | "gate" | "liveFeed" | "disciplinary" | "staff" | "attendance";
 type GateState = "idle" | "scanning" | "success" | "error";
 type GateWorkspace = "identity" | "biometric" | "operations";
 type SensorMode = "verify" | "enroll" | "exit";
@@ -75,6 +75,7 @@ const navigationItems: Array<{ key: ViewMode; label: string; shortLabel: string;
   { key: "dashboard", label: "Dashboard", shortLabel: "Accueil", activeClass: "bg-white text-slate-950", eyebrow: "Vue" },
   { key: "liveFeed", label: "Flux live", shortLabel: "Flux", activeClass: "bg-neon text-white", eyebrow: "Temps réel" },
   { key: "disciplinary", label: "Registre", shortLabel: "Registre", activeClass: "bg-amber-300 text-slate-950", eyebrow: "Élèves" },
+  { key: "staff", label: "Personnel", shortLabel: "Personnel", activeClass: "bg-teal-300 text-slate-950", eyebrow: "Registre" },
   { key: "attendance", label: "Historique", shortLabel: "Journal", activeClass: "bg-signal text-slate-950", eyebrow: "Présences" }
 ];
 
@@ -83,6 +84,7 @@ const viewPaths: Record<ViewMode, string> = {
   dashboard: "/dashboard",
   liveFeed: "/live-feed",
   disciplinary: "/disciplinary",
+  staff: "/staff-register",
   attendance: "/attendance"
 };
 
@@ -259,6 +261,16 @@ const shiftDateKey = (dateKey: string, days: number) => {
   return date.toISOString().slice(0, 10);
 };
 
+const normalizeClassLabel = (raw?: string | null) => {
+  const value = String(raw || "Non assigné").trim().replace(/\s+/g, " ");
+  const kindergarten = value.match(/\bk\s*([3-5])\b/i);
+  if (kindergarten) return `K${kindergarten[1]}`;
+  const grade = value.match(/grade\s*(\d{1,2})/i);
+  if (!grade) return value;
+  const section = value.match(/grade\s*\d{1,2}\s*(?:-|section)?\s*([A-Z])\s*$/i)?.[1];
+  return `Grade ${Number(grade[1])}${section ? ` ${section.toUpperCase()}` : ""}`;
+};
+
 const operationsRange = (period: OperationsPeriod) => {
   const to = schoolDateKey();
   if (period === "daily") return { from: to, to };
@@ -355,6 +367,15 @@ type AppProps = {
 };
 
 function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
+  const tr = (fr: string, en: string) => language === "fr" ? fr : en;
+  const translatedNavigation: Record<ViewMode, { label: string; shortLabel: string; eyebrow: string }> = {
+    gate: { label: tr("Poste d'entrée", "Entrance desk"), shortLabel: tr("Entrée", "Gate"), eyebrow: tr("Capteur", "Scanner") },
+    dashboard: { label: tr("Tableau de bord", "Dashboard"), shortLabel: tr("Accueil", "Home"), eyebrow: tr("Vue", "Overview") },
+    liveFeed: { label: tr("Flux en direct", "Live feed"), shortLabel: tr("Flux", "Live"), eyebrow: tr("Temps réel", "Real time") },
+    disciplinary: { label: tr("Registre élèves", "Student register"), shortLabel: tr("Élèves", "Students"), eyebrow: tr("Registre", "Register") },
+    staff: { label: tr("Registre personnel", "Staff register"), shortLabel: tr("Personnel", "Staff"), eyebrow: tr("Registre", "Register") },
+    attendance: { label: tr("Historique", "History"), shortLabel: tr("Journal", "Log"), eyebrow: tr("Présences", "Attendance") }
+  };
   const [overview, setOverview] = useState<DashboardOverview>({
     campus: "KCS Smart Campus - Main Gate",
     syncStatus: "Secure synchronization in progress",
@@ -378,6 +399,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [gateWorkspace, setGateWorkspace] = useState<GateWorkspace>("identity");
   const [sensorMode, setSensorMode] = useState<SensorMode>("verify");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("");
+  const [studentRegisterSearch, setStudentRegisterSearch] = useState("");
+  const [staffRegisterSearch, setStaffRegisterSearch] = useState("");
   const [selectedFinger, setSelectedFinger] = useState<(typeof FINGER_OPTIONS)[number]>(FINGER_OPTIONS[0]);
   const [scanMessage, setScanMessage] = useState(getIdleScanMessage("verify", FINGER_OPTIONS[0]));
   const [scanResult, setScanResult] = useState<GateScanResponse | null>(null);
@@ -403,7 +426,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [operationsReport, setOperationsReport] = useState<OperationsReport | null>(null);
   const [operationsReportBusy, setOperationsReportBusy] = useState(false);
   const [clockReference, setClockReference] = useState<ClockReference | null>(null);
-  const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }));
+  const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: SCHOOL_TIME_ZONE }));
   const unlockTimerRef = useRef<number | null>(null);
   const sensorSurfaceRef = useRef<HTMLButtonElement | null>(null);
   const isNavigatingFromHistoryRef = useRef(false);
@@ -433,6 +456,21 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     () => students.find((student) => student.id === selectedStudentId) ?? students[0] ?? null,
     [selectedStudentId, students]
   );
+
+  const filteredRegisterStudents = useMemo(() => {
+    const query = studentRegisterSearch.trim().toLocaleLowerCase("fr");
+    return students
+      .filter((student) => !query || `${student.fullName} ${normalizeClassLabel(student.className)}`.toLocaleLowerCase("fr").includes(query))
+      .sort((left, right) => left.fullName.localeCompare(right.fullName, "fr"));
+  }, [studentRegisterSearch, students]);
+
+  const staffDirectory = useMemo(() => {
+    const query = staffRegisterSearch.trim().toLocaleLowerCase("fr");
+    return orbitDirectory
+      .filter((person) => person.kind === "TEACHER" || person.kind === "STAFF")
+      .filter((person) => !query || [person.fullName, person.displayId, person.email, person.jobTitle].some((value) => value?.toLocaleLowerCase("fr").includes(query)))
+      .sort((left, right) => left.fullName.localeCompare(right.fullName, "fr"));
+  }, [orbitDirectory, staffRegisterSearch]);
 
   const attendanceLog = overview.attendanceLog ?? [];
 
@@ -489,7 +527,10 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   }, []);
 
   useEffect(() => {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    // Every operational timestamp is anchored to the school's official clock.
+    // The browser's inferred zone (often Africa/Lagos because it shares UTC+1)
+    // must never become the business-time authority for KCS attendance.
+    const timezone = SCHOOL_TIME_ZONE;
     setDeviceContext({ timezone });
     if (window.isSecureContext && "geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -748,6 +789,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           ? "KCS School | Flux live"
           : activeView === "disciplinary"
             ? "KCS School | Registre"
+            : activeView === "staff"
+              ? "KCS School | Personnel"
             : activeView === "attendance"
               ? "KCS School | Historique"
               : "KCS School | SENTINEL";
@@ -1371,6 +1414,10 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           </div>
         </>
       )}
+      <section className="mt-7 border-t border-white/10 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-teal-200">Personnel de l'école</div><p className="mt-2 text-sm text-slate-300">Entrées et sorties des enseignants, staff et workers pour la période sélectionnée.</p></div><span className="rounded-full bg-white/5 px-3 py-2 text-xs text-slate-300">{operationsReport?.employeePresence.length || 0} personne(s)</span></div>
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-[#063c65] text-xs uppercase text-cyan-100"><tr><th className="p-3">Personnel</th><th className="p-3">Fonction</th><th className="p-3">Première entrée</th><th className="p-3">Dernière sortie</th><th className="p-3">État</th></tr></thead><tbody>{(operationsReport?.employeePresence || []).map((row) => <tr key={row.person_id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{row.fullName}<small className="block text-slate-400">{row.displayId || row.kind}</small></td><td className="p-3 text-slate-300">{row.jobTitle || row.kind}</td><td className="p-3 text-slate-300">{formatTimeValue(row.firstEntry)}</td><td className="p-3 text-slate-300">{formatTimeValue(row.lastExit)}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.latestDirection === "ENTRY" ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-slate-300"}`}>{row.latestDirection === "ENTRY" ? "Présent" : "Sorti"}</span></td></tr>)}{!operationsReport?.employeePresence.length && <tr><td colSpan={5} className="p-6 text-center text-slate-400">Aucun mouvement du personnel pour cette période.</td></tr>}</tbody></table></div>
+      </section>
     </div>
   );
 
@@ -1408,14 +1455,21 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           </div>
           <label className="rounded-3xl border border-white/10 bg-slate-950/45 p-4 text-sm text-slate-200">
             <div className="mb-2 text-xs uppercase tracking-[0.22em] text-slate-400">Choisir un élève</div>
+            <input
+              type="search"
+              value={studentRegisterSearch}
+              onChange={(event) => setStudentRegisterSearch(event.target.value)}
+              placeholder="Nom complet ou classe…"
+              className="mb-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan"
+            />
             <select
               value={selectedStudentId}
               onChange={(event) => setSelectedStudentId(event.target.value)}
               className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none"
             >
-              {students.map((student) => (
+              {filteredRegisterStudents.map((student) => (
                 <option key={student.id} value={student.id}>
-                  {student.fullName} - {student.className}
+                  {student.fullName} - {normalizeClassLabel(student.className)}
                 </option>
               ))}
             </select>
@@ -1524,8 +1578,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
         <div className="mt-6 rounded-3xl border border-white/10 bg-slate-950/45 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Calendrier scolaire configurable</div>
-              <div className="mt-2 text-sm text-slate-300">Ajoutez ici les jours feries et jours non ouvres pour qu'ils ne soient pas comptes comme absences disciplinaires.</div>
+              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">{tr("Calendrier scolaire configurable", "Configurable school calendar")}</div>
+              <div className="mt-2 text-sm text-slate-300">{tr("Semaine officielle : lundi à vendredi. Les week-ends sont non ouvrés par défaut. Les congés KCS et jours fériés légaux de RDC sont préchargés; une exception enregistrée ici reste prioritaire.", "Official week: Monday through Friday. Weekends are non-school days by default. KCS breaks and DRC statutory holidays are preloaded; an exception saved here takes priority.")}</div>
             </div>
             <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-slate-300">
               {calendarDays.length} exception(s)
@@ -1581,6 +1635,26 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       </section>
     );
   };
+
+  const renderStaffRegister = () => (
+    <section className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-teal-200">Registre institutionnel Orbit</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Personnel de l'école</h2>
+          <p className="mt-2 text-sm text-slate-300">Enseignants, staff administratif et workers actifs, synchronisés depuis le registre officiel.</p>
+        </div>
+        <label className="w-full max-w-xl text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Recherche précise
+          <input type="search" value={staffRegisterSearch} onChange={(event) => setStaffRegisterSearch(event.target.value)} placeholder="Nom, code Orbit, e-mail ou fonction…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm normal-case tracking-normal text-white outline-none focus:border-teal-300" />
+        </label>
+      </div>
+      <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+        <table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-[#063c65] text-xs uppercase text-cyan-100"><tr><th className="p-3">Nom complet</th><th className="p-3">Catégorie</th><th className="p-3">Fonction</th><th className="p-3">Code Orbit</th><th className="p-3">État du jour</th></tr></thead>
+          <tbody>{staffDirectory.map((person) => { const presence = operationsReport?.employeePresence.find((row) => row.person_id === person.id); return <tr key={person.id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{person.fullName}<small className="block text-slate-400">{person.email || "—"}</small></td><td className="p-3 text-slate-300">{person.kind === "TEACHER" ? "Enseignant" : "Staff / Worker"}</td><td className="p-3 text-slate-300">{person.jobTitle || "—"}</td><td className="p-3 text-slate-300">{person.displayId || person.id}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${presence?.latestDirection === "ENTRY" ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-slate-300"}`}>{presence?.latestDirection === "ENTRY" ? `Présent · ${formatTimeValue(presence.firstEntry)}` : presence ? `Sorti · ${formatTimeValue(presence.lastExit)}` : "Non pointé"}</span></td></tr>; })}{!staffDirectory.length && <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun membre du personnel ne correspond à cette recherche.</td></tr>}</tbody>
+        </table>
+      </div>
+    </section>
+  );
 
   const renderDashboardHome = () => (
     <>
@@ -1734,6 +1808,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
         return renderLiveFeedPage();
       case "disciplinary":
         return renderDisciplinaryRegister();
+      case "staff":
+        return renderStaffRegister();
       case "attendance":
         return renderAttendanceRegister();
       default:
@@ -1750,7 +1826,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       <aside className="sentinel-side-nav hidden md:block">
         <div className="sticky top-[88px] min-h-[calc(100dvh-100px)] rounded-r-[18px] border border-l-0 border-white/10 bg-white/[0.05] p-2 shadow-glow backdrop-blur-xl">
           <div className="px-2 pb-2 pt-1">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan">Navigation Sentinel</div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan">{tr("Navigation Sentinel", "Sentinel navigation")}</div>
           </div>
           <div className="space-y-1.5">
             {navigationItems.map((item) => {
@@ -1762,8 +1838,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   onClick={() => navigateToView(item.key)}
                   className={`sentinel-nav-item w-full rounded-xl border px-2.5 py-2 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_12px_26px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
                 >
-                  <div className={`text-[9px] uppercase tracking-[0.16em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
-                  <div className="mt-1 text-[13px] font-semibold leading-tight">{item.label}</div>
+                  <div className={`text-[9px] uppercase tracking-[0.16em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{translatedNavigation[item.key].eyebrow}</div>
+                  <div className="mt-1 text-[13px] font-semibold leading-tight">{translatedNavigation[item.key].label}</div>
                 </button>
               );
             })}
@@ -1780,11 +1856,11 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     }
 
     return (
-      <nav aria-label="Navigation principale" className={`sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid ${onLogout ? "grid-cols-6" : "grid-cols-5"} gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden`}>
+      <nav aria-label={tr("Navigation principale", "Main navigation")} className={`sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid ${onLogout ? "grid-cols-7" : "grid-cols-6"} gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden`}>
         {navigationItems.map((item) => {
           const isActive = activeView === item.key;
-          const icon = ({ gate: "⌁", dashboard: "⌂", liveFeed: "◉", disciplinary: "▤", attendance: "◷" } as const)[item.key];
-          return <button key={item.key} type="button" aria-current={isActive ? "page" : undefined} onClick={() => navigateToView(item.key)} className={`flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition active:scale-95 ${isActive ? item.activeClass : "text-slate-300 hover:bg-white/5"}`}><span aria-hidden="true" className="text-base leading-none">{icon}</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{item.shortLabel}</span></button>;
+          const icon = ({ gate: "⌁", dashboard: "⌂", liveFeed: "◉", disciplinary: "▤", staff: "♙", attendance: "◷" } as const)[item.key];
+          return <button key={item.key} type="button" aria-current={isActive ? "page" : undefined} onClick={() => navigateToView(item.key)} className={`flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition active:scale-95 ${isActive ? item.activeClass : "text-slate-300 hover:bg-white/5"}`}><span aria-hidden="true" className="text-base leading-none">{icon}</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{translatedNavigation[item.key].shortLabel}</span></button>;
         })}
         {onLogout && <button type="button" onClick={onLogout} className="flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center text-rose-200 transition active:scale-95"><span aria-hidden="true" className="text-base leading-none">↪</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{language === "fr" ? "Sortir" : "Exit"}</span></button>}
       </nav>
@@ -1808,7 +1884,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
             </div>
 
             <div className="sentinel-header-actions hidden flex-wrap gap-3 md:flex">
-              <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-cyan text-[#032942]" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-cyan text-[#032942]" : "text-white hover:bg-white/10"}`}>EN</button></div>
+              <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>EN</button></div>
               {!kioskMode && (
                 <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
                   Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
@@ -1890,12 +1966,12 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.24em] text-cyan">Pointage universel et registre nominatif</div>
                     <h2 className="mt-2 text-xl font-semibold text-white">Identifier une entité KCS ou un visiteur</h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">L'heure enregistrée vient du serveur Sentinel/PostgreSQL. Le fuseau de l'appareil est détecté automatiquement pour l'affichage local, sans pouvoir modifier l'heure officielle.</p>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">L'heure enregistrée vient du serveur Sentinel/PostgreSQL et s'affiche exclusivement dans le fuseau officiel de l'école : Africa/Kinshasa.</p>
                   </div>
                   <div className="max-w-full rounded-2xl border border-signal/25 bg-signal/10 px-4 py-3 text-xs leading-5 text-signal">
                     <strong className="block text-white">Heure officielle serveur</strong>
                     {clockReference ? formatDateTimeValue(clockReference.serverUtc) : "Synchronisation…"}<br />
-                    <span className="text-slate-300">Fuseau détecté : {deviceContext.timezone}</span>
+                    <span className="text-slate-300">Fuseau officiel : {SCHOOL_TIME_ZONE}</span>
                   </div>
                 </div>
 
