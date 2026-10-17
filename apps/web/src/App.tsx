@@ -28,6 +28,7 @@ type BeforeInstallPromptEvent = Event & {
 
 type ViewMode = "dashboard" | "gate" | "liveFeed" | "disciplinary" | "attendance";
 type GateState = "idle" | "scanning" | "success" | "error";
+type GateWorkspace = "identity" | "biometric" | "operations";
 type SensorMode = "verify" | "enroll" | "exit";
 type StatCard = {
   key: "present" | "late" | "absent" | "biometricSuccessRate";
@@ -316,6 +317,7 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unlockHolding, setUnlockHolding] = useState(false);
   const [gateState, setGateState] = useState<GateState>("idle");
+  const [gateWorkspace, setGateWorkspace] = useState<GateWorkspace>("identity");
   const [sensorMode, setSensorMode] = useState<SensorMode>("verify");
   const [selectedStudentId, setSelectedStudentId] = useState<string>("");
   const [selectedFinger, setSelectedFinger] = useState<(typeof FINGER_OPTIONS)[number]>(FINGER_OPTIONS[0]);
@@ -329,6 +331,8 @@ function App() {
   const [calendarIsSchoolDay, setCalendarIsSchoolDay] = useState(false);
   const [orbitDirectory, setOrbitDirectory] = useState<OrbitDirectoryPerson[]>([]);
   const [orbitSearch, setOrbitSearch] = useState("");
+  const [orbitDirectoryLoading, setOrbitDirectoryLoading] = useState(true);
+  const [orbitDirectoryError, setOrbitDirectoryError] = useState("");
   const [visitors, setVisitors] = useState<VisitorDirectoryItem[]>([]);
   const [visitorSearch, setVisitorSearch] = useState("");
   const [visitorForm, setVisitorForm] = useState({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
@@ -439,15 +443,47 @@ function App() {
           sentinelFetch(`${API_URL}/visitors`),
           sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(timezone)}`)
         ]);
-        if (directoryResponse.ok) setOrbitDirectory(((await directoryResponse.json()) as { people: OrbitDirectoryPerson[] }).people ?? []);
+        if (directoryResponse.ok) {
+          setOrbitDirectory(((await directoryResponse.json()) as { people: OrbitDirectoryPerson[] }).people ?? []);
+          setOrbitDirectoryError("");
+        } else {
+          setOrbitDirectoryError("Le registre Orbit n'a pas pu être chargé.");
+        }
         if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
         if (clockResponse.ok) setClockReference((await clockResponse.json()) as ClockReference);
       } catch {
         setMovementNotice("Le registre opérationnel se resynchronisera automatiquement dès que la liaison sera disponible.");
+        setOrbitDirectoryError("Liaison Orbit momentanément indisponible.");
+      } finally {
+        setOrbitDirectoryLoading(false);
       }
     };
     void loadOperationsRegistry();
   }, []);
+
+  useEffect(() => {
+    const query = orbitSearch.trim();
+    if (query.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setOrbitDirectoryLoading(true);
+      try {
+        const response = await sentinelFetch(`${API_URL}/directory?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("Orbit directory unavailable");
+        const payload = (await response.json()) as { people: OrbitDirectoryPerson[] };
+        setOrbitDirectory(payload.people ?? []);
+        setOrbitDirectoryError("");
+      } catch (error) {
+        if (!controller.signal.aborted) setOrbitDirectoryError("La recherche Orbit sera relancée automatiquement. Vous pouvez aussi réessayer.");
+      } finally {
+        if (!controller.signal.aborted) setOrbitDirectoryLoading(false);
+      }
+    }, 240);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [orbitSearch]);
 
   const visibleOrbitPeople = useMemo(() => {
     const query = orbitSearch.trim().toLocaleLowerCase("fr");
@@ -1568,12 +1604,11 @@ function App() {
 
     return (
       <aside className="sentinel-side-nav hidden md:block">
-        <div className="sticky top-[92px] min-h-[calc(100dvh-108px)] rounded-r-[22px] border border-l-0 border-white/10 bg-white/[0.05] p-3 shadow-glow backdrop-blur-xl">
-          <div className="px-3 pb-4">
-            <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Navigation</div>
-            <div className="mt-2 text-sm leading-6 text-slate-300">Passez d'une page métier à l'autre sans faire défiler tout l'écran.</div>
+        <div className="sticky top-[88px] min-h-[calc(100dvh-100px)] rounded-r-[18px] border border-l-0 border-white/10 bg-white/[0.05] p-2 shadow-glow backdrop-blur-xl">
+          <div className="px-2 pb-2 pt-1">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan">Navigation Sentinel</div>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {navigationItems.map((item) => {
               const isActive = activeView === item.key;
               return (
@@ -1581,10 +1616,10 @@ function App() {
                   key={item.key}
                   type="button"
                   onClick={() => navigateToView(item.key)}
-                  className={`sentinel-nav-item w-full rounded-xl border px-3 py-3 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_18px_40px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
+                  className={`sentinel-nav-item w-full rounded-xl border px-2.5 py-2 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_12px_26px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
                 >
-                  <div className={`text-[11px] uppercase tracking-[0.22em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
-                  <div className="mt-2 text-sm font-semibold">{item.label}</div>
+                  <div className={`text-[9px] uppercase tracking-[0.16em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
+                  <div className="mt-1 text-[13px] font-semibold leading-tight">{item.label}</div>
                 </button>
               );
             })}
@@ -1725,12 +1760,12 @@ function App() {
           </div>
         </header>
 
-        <div className={`sentinel-workspace ${kioskMode ? "mt-4" : "md:grid md:grid-cols-[210px_minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]"}`}>
+        <div className={`sentinel-workspace ${kioskMode ? "mt-4" : "md:grid md:grid-cols-[176px_minmax(0,1fr)] lg:grid-cols-[188px_minmax(0,1fr)]"}`}>
           {renderDesktopNavigation()}
 
           <main className="min-w-0 overflow-hidden px-3 pt-4 sm:px-5 lg:px-6">
         {activeView === "gate" ? (
-          <section className="grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <section className={`min-h-[calc(100vh-13rem)] gap-6 ${gateWorkspace === "operations" ? "grid xl:grid-cols-[1.05fr_0.95fr]" : "block"}`}>
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1740,7 +1775,27 @@ function App() {
                 <div className="max-w-full rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-center text-xs uppercase tracking-[0.2em] text-cyan sm:tracking-[0.24em]">{ENTRY_POINT}</div>
               </div>
 
-              <div className="mt-6 rounded-[28px] border border-cyan/20 bg-slate-950/45 p-4 sm:p-5">
+              <div className="mt-5 grid gap-2 rounded-2xl border border-white/10 bg-slate-950/55 p-2 sm:grid-cols-3" role="tablist" aria-label="Espaces du poste d'entrée">
+                {([
+                  ["identity", "Identités & visiteurs", "Recherche Orbit et pointage nominatif"],
+                  ["biometric", "Biométrie", "Empreintes et enrôlement"],
+                  ["operations", "Suivi opérationnel", "Registre, guide et flux live"]
+                ] as const).map(([workspace, label, description]) => (
+                  <button
+                    key={workspace}
+                    type="button"
+                    role="tab"
+                    aria-selected={gateWorkspace === workspace}
+                    onClick={() => setGateWorkspace(workspace)}
+                    className={`rounded-xl px-4 py-3 text-left transition ${gateWorkspace === workspace ? "bg-cyan text-slate-950 shadow-lg" : "text-slate-200 hover:bg-white/5"}`}
+                  >
+                    <span className="block text-sm font-semibold">{label}</span>
+                    <span className={`mt-1 block text-[11px] ${gateWorkspace === workspace ? "text-slate-800" : "text-slate-400"}`}>{description}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className={`${gateWorkspace === "identity" ? "block" : "hidden"} mt-6 rounded-[28px] border border-cyan/20 bg-slate-950/45 p-4 sm:p-5`}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.24em] text-cyan">Pointage universel et registre nominatif</div>
@@ -1761,6 +1816,10 @@ function App() {
                     <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Entités KCS · registre Orbit</div>
                     <label className="mt-3 block text-sm font-medium text-white" htmlFor="orbit-person-search">Nom, e-mail, code ou identifiant Orbit</label>
                     <input id="orbit-person-search" value={orbitSearch} onChange={(event) => setOrbitSearch(event.target.value)} placeholder="Rechercher une entité KCS…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className={orbitDirectoryError ? "text-amber-200" : "text-slate-400"}>{orbitDirectoryLoading ? "Recherche sécurisée dans Orbit…" : orbitDirectoryError || `${orbitDirectory.length} identité(s) disponible(s)`}</span>
+                      <button type="button" onClick={() => { setOrbitDirectoryLoading(true); sentinelFetch(`${API_URL}/directory?refresh=true${orbitSearch.trim() ? `&q=${encodeURIComponent(orbitSearch.trim())}` : ""}`).then(async response => { if (!response.ok) throw new Error(); const payload = await response.json() as { people: OrbitDirectoryPerson[] }; setOrbitDirectory(payload.people ?? []); setOrbitDirectoryError(""); }).catch(() => setOrbitDirectoryError("La resynchronisation Orbit a échoué." )).finally(() => setOrbitDirectoryLoading(false)); }} className="rounded-lg border border-white/10 px-3 py-1.5 font-semibold text-cyan hover:bg-white/5">Resynchroniser</button>
+                    </div>
                     <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
                       {visibleOrbitPeople.map((person) => (
                         <article key={person.id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
@@ -1813,7 +1872,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-5 2xl:grid-cols-[0.95fr_1.05fr]">
+              <div className={`${gateWorkspace === "biometric" ? "grid" : "hidden"} mt-6 gap-5 2xl:grid-cols-[0.95fr_1.05fr]`}>
                 <div className="rounded-[28px] border border-white/10 bg-slate-950/55 p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Capteur d'empreinte</div>
@@ -1968,7 +2027,7 @@ function App() {
                 </div>
               </div>
 
-              <div className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-5">
+              <div className={`${gateWorkspace === "biometric" ? "block" : "hidden"} mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-5`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Liste des élèves</div>
@@ -2020,10 +2079,10 @@ function App() {
                 </div>
               </div>
 
-              {renderAttendanceRegister()}
+              {gateWorkspace === "operations" ? renderAttendanceRegister() : null}
             </div>
 
-            <div className="grid gap-6">
+            <div className={`${gateWorkspace === "operations" ? "grid" : "hidden"} gap-6`}>
               <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 backdrop-blur-xl sm:p-6">
                 <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Guide opérateur</div>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">

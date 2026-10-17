@@ -1,4 +1,4 @@
-const CACHE_NAME = "kcs-sentinel-shell-v4";
+const CACHE_NAME = "kcs-sentinel-shell-v6";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [

@@ -4,7 +4,10 @@ import App from './App'
 const configuredApi = import.meta.env.VITE_API_URL?.trim() || '/api'
 const API = configuredApi.endsWith('/') ? configuredApi.slice(0, -1) : configuredApi
 type User = { sub: string; role: string; personId: string; fullName: string }
+type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 const sessionHeaders = (token: string) => ({ authorization: 'Bearer ' + token, 'content-type': 'application/json' })
+const periodLabels: Record<string, string> = { daily: 'Aujourd’hui', weekly: '7 jours', monthly: '31 jours', yearly: 'Année' }
+const formatMinutes = (value = 0) => `${Math.floor(value / 60)} h ${String(value % 60).padStart(2, '0')}`
 
 export default function InstitutionalGate() {
   const [token, setToken] = useState(() => sessionStorage.getItem('sentinel-token') || '')
@@ -18,6 +21,17 @@ export default function InstitutionalGate() {
   const [incidentType, setIncidentType] = useState('LATE')
   const [incidentDate, setIncidentDate] = useState(new Date().toISOString().slice(0, 10))
   const [reason, setReason] = useState('')
+  const [selectedPeriod, setSelectedPeriod] = useState('monthly')
+  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null)
+  const [installNotice, setInstallNotice] = useState('')
+
+  useEffect(() => {
+    const capture = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPrompt) }
+    const installed = () => { setInstallPrompt(null); setInstallNotice('KCS Sentinel est installé sur cet appareil.') }
+    window.addEventListener('beforeinstallprompt', capture)
+    window.addEventListener('appinstalled', installed)
+    return () => { window.removeEventListener('beforeinstallprompt', capture); window.removeEventListener('appinstalled', installed) }
+  }, [])
 
   useEffect(() => {
     if (!token || user?.role !== 'entity') return
@@ -61,18 +75,37 @@ export default function InstitutionalGate() {
     setToken(''); setUser(null); setData(null)
   }
 
+  const install = async () => {
+    if (window.matchMedia('(display-mode: standalone)').matches) { setInstallNotice('Sentinel fonctionne déjà comme application installée.'); return }
+    if (!installPrompt) { setInstallNotice('Installation : ouvrez le menu du navigateur puis choisissez « Installer KCS Sentinel » ou « Ajouter à l’écran d’accueil ».'); return }
+    await installPrompt.prompt(); const choice = await installPrompt.userChoice
+    setInstallNotice(choice.outcome === 'accepted' ? 'Installation Sentinel acceptée.' : 'Installation annulée. Vous pourrez la relancer ici.')
+    setInstallPrompt(null)
+  }
+
   if (token && user?.role !== 'entity') return <div className="sentinel-kitchen-surface relative min-h-screen">
-    <button onClick={logout} className="fixed right-3 top-3 z-[100] rounded-xl border border-cyan-300/30 bg-[#06233b]/95 px-4 py-2 text-xs font-bold text-white shadow-xl backdrop-blur">Déconnexion</button>
+    <div className="fixed right-3 top-3 z-[100] flex gap-2"><button onClick={() => void install()} className="rounded-xl border border-cyan-300/30 bg-[#06233b]/95 px-3 py-2 text-xs font-bold text-cyan-100 shadow-xl backdrop-blur">Installer</button><button onClick={logout} className="rounded-xl border border-cyan-300/30 bg-[#06233b]/95 px-3 py-2 text-xs font-bold text-white shadow-xl backdrop-blur">Déconnexion</button></div>
     <App />
   </div>
 
-  if (token && user) return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
-    <div className="mx-auto max-w-6xl">
+  if (token && user) {
+    const periods = data?.statistics?.periods || {}
+    const selected = periods[selectedPeriod] || {}
+    return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
+    <div className="mx-auto max-w-7xl">
       <header className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-[#073d5e]/90 p-5 shadow-2xl backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-7">
         <div className="flex items-center gap-4"><img src="./icons/kcs-logo.jpg" alt="Kinshasa Christian School" className="h-16 w-16 rounded-full border-2 border-cyan-300 object-cover" /><div><small className="font-bold tracking-[.22em] text-cyan-300">KCS SENTINEL · ESPACE PERSONNEL</small><h1 className="mt-1 text-2xl font-black sm:text-3xl">{user.fullName}</h1></div></div>
-        <button onClick={logout} className="rounded-xl border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10">Déconnexion</button>
+        <div className="flex flex-wrap gap-2"><button onClick={() => void install()} className="rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100 hover:bg-cyan-300/20">Installer Sentinel</button><button onClick={logout} className="rounded-xl border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10">Déconnexion</button></div>
       </header>
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(data?.statistics?.periods || {}).map(([period, value]: any) => <article className="rounded-2xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur" key={period}><b className="uppercase text-cyan-300">{period}</b><strong className="mt-2 block text-3xl">{value.entries}</strong><span className="text-sm text-slate-300">{value.exits} sortie(s)</span></article>)}</section>
+      {installNotice && <p className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 text-sm text-cyan-50">{installNotice}</p>}
+      <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(periods).map(([period, value]: any) => <button onClick={() => setSelectedPeriod(period)} className={`rounded-2xl border p-5 text-left shadow-xl backdrop-blur transition ${selectedPeriod === period ? 'border-cyan-300 bg-cyan-300/20 ring-2 ring-cyan-300/20' : 'border-cyan-300/15 bg-white/10 hover:bg-white/15'}`} key={period}><b className="uppercase text-cyan-300">{periodLabels[period] || period}</b><strong className="mt-2 block text-3xl">{value.attendanceDays}</strong><span className="text-sm text-slate-300">jour(s) de présence · {value.entries} entrée(s)</span></button>)}</section>
+      <section className="mt-5 rounded-3xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur md:p-7">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><small className="font-bold tracking-widest text-cyan-300">ANALYSE PERSONNELLE · {periodLabels[selectedPeriod] || selectedPeriod}</small><h2 className="mt-2 text-2xl font-black">Ma fréquentation en chiffres</h2></div><span className={`w-fit rounded-full px-4 py-2 text-sm font-black ${Number(selected.punctualityRate || 0) >= 80 ? 'bg-emerald-400/20 text-emerald-200' : 'bg-amber-300/20 text-amber-100'}`}>{selected.punctualityRate || 0}% de ponctualité</span></div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          {[['Présence', `${selected.presenceRate || 0}%`],['Arrivée moyenne', selected.averageArrival || '—'],['Sortie moyenne', selected.averageDeparture || '—'],['Durée moyenne', formatMinutes(selected.averagePresenceMinutes)],['Jours complets', selected.completeDays || 0],['Tendance', `${Number(selected.trendDays || 0) >= 0 ? '+' : ''}${selected.trendDays || 0} jour(s)`]].map(([label,value])=><article key={String(label)} className="rounded-2xl border border-white/10 bg-[#042f4d]/75 p-4"><span className="text-xs font-bold uppercase tracking-wider text-slate-300">{label}</span><strong className="mt-2 block text-xl text-white">{value}</strong></article>)}
+        </div>
+        <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-[#032942]/90 text-xs uppercase text-cyan-200"><tr><th className="p-3">Date</th><th className="p-3">Première entrée</th><th className="p-3">Dernière sortie</th><th className="p-3">Durée</th><th className="p-3">Statut</th></tr></thead><tbody>{(selected.dayDetails || []).slice(0,31).map((day:any)=><tr key={day.date} className="border-t border-white/10"><td className="p-3 font-bold">{day.date}</td><td className="p-3">{day.firstEntry ? new Date(day.firstEntry).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—'}</td><td className="p-3">{day.lastExit ? new Date(day.lastExit).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—'}</td><td className="p-3">{day.durationMinutes == null ? 'En cours / incomplet' : formatMinutes(day.durationMinutes)}</td><td className="p-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${day.late ? 'bg-amber-300/20 text-amber-100' : 'bg-emerald-400/20 text-emerald-200'}`}>{day.late ? 'Retard' : 'À l’heure'}</span></td></tr>)}{!(selected.dayDetails || []).length && <tr><td colSpan={5} className="p-6 text-center text-slate-300">Aucun mouvement enregistré pour cette période.</td></tr>}</tbody></table></div>
+      </section>
       <form onSubmit={sendJustification} className="mt-5 grid gap-5 rounded-3xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur md:grid-cols-2 md:p-7">
         <div><small className="font-bold tracking-widest text-cyan-300">TRAÇABILITÉ</small><h2 className="mt-2 text-xl font-black">Justifier une absence ou un retard</h2><p className="mt-2 text-sm text-slate-300">Votre demande est transmise à KCS et reste traçable jusqu’à sa décision.</p></div>
         <div className="grid gap-3"><select value={incidentType} onChange={event => setIncidentType(event.target.value)} className="rounded-xl bg-sky-50 p-3 text-slate-900"><option value="LATE">Retard</option><option value="ABSENCE">Absence</option></select><input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} className="rounded-xl bg-sky-50 p-3 text-slate-900" /><textarea value={reason} onChange={event => setReason(event.target.value)} minLength={10} required placeholder="Motif détaillé et vérifiable" className="min-h-28 rounded-xl bg-sky-50 p-3 text-slate-900" /><button disabled={busy} className="rounded-xl bg-cyan-400 p-3 font-black text-slate-950 disabled:opacity-60">{busy ? 'Envoi sécurisé…' : 'Envoyer à KCS'}</button></div>
@@ -80,7 +113,7 @@ export default function InstitutionalGate() {
       <section className="mt-5 rounded-3xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur md:p-7"><h2 className="font-black">Mes justificatifs</h2>{(data?.justifications || []).length === 0 && <p className="mt-3 text-sm text-slate-300">Aucun justificatif enregistré.</p>}{(data?.justifications || []).map((item: any) => <div className="mt-3 rounded-xl border border-white/10 bg-black/10 p-3" key={item.id}><b>{item.incident_date} · {item.incident_type} · {item.status}</b><p className="mt-1 text-sm text-slate-300">{item.reason}</p></div>)}</section>
       {error && <p className="mt-4 rounded-xl bg-red-950/70 p-3 text-amber-200">{error}</p>}
     </div>
-  </main>
+  </main>}
 
   return <main className="relative grid min-h-screen overflow-hidden bg-[#031d32] font-display lg:grid-cols-[1.05fr_.95fr]">
     <section className="relative flex min-h-[40vh] flex-col justify-between overflow-hidden bg-[radial-gradient(circle_at_80%_15%,#20b8d855_0,transparent_32%),linear-gradient(145deg,#052c4e_0%,#063c65_58%,#031d32_100%)] p-7 text-white sm:p-12 lg:min-h-screen lg:p-16">
@@ -94,7 +127,7 @@ export default function InstitutionalGate() {
         <small className="font-black tracking-[.2em] text-cyan-700">ACCÈS SÉCURISÉ</small><h2 className="mt-3 text-3xl font-black text-[#053665]">Connexion institutionnelle</h2><p className="mt-2 text-sm text-slate-600">Utilisez votre e-mail ou code d’accès KCS Orbit habituel.</p>
         <label className="mt-7 block text-xs font-bold text-slate-700">E-mail ou code d’accès</label><input value={identifier} onChange={event => setIdentifier(event.target.value)} autoComplete="username" required className="mt-2 w-full rounded-xl border border-sky-200 bg-white p-3 text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" />
         <label className="mt-4 block text-xs font-bold text-slate-700">Mot de passe</label><div className="relative mt-2"><input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required className="w-full rounded-xl border border-sky-200 bg-white p-3 pr-24 text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /><button type="button" onClick={() => setShowPassword(value => !value)} className="absolute inset-y-1 right-1 rounded-lg px-3 text-xs font-bold text-cyan-800 hover:bg-cyan-50">{showPassword ? 'Cacher' : 'Afficher'}</button></div>
-        {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}<button disabled={busy} className="mt-5 w-full rounded-xl bg-gradient-to-r from-[#075b91] to-[#087a86] p-3.5 font-black text-white shadow-lg disabled:opacity-60">{busy ? 'Connexion sécurisée…' : 'Entrer dans Sentinel'}</button><p className="mt-5 text-center text-xs text-slate-500">Identité Orbit chiffrée · session auditée · aucune donnée de démonstration</p>
+        {error && <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}<button disabled={busy} className="mt-5 w-full rounded-xl bg-gradient-to-r from-[#075b91] to-[#087a86] p-3.5 font-black text-white shadow-lg disabled:opacity-60">{busy ? 'Connexion sécurisée…' : 'Entrer dans Sentinel'}</button><button type="button" onClick={() => void install()} className="mt-3 w-full rounded-xl border border-cyan-700/20 bg-cyan-50 p-3 text-sm font-black text-cyan-900 hover:bg-cyan-100">Installer KCS Sentinel</button>{installNotice && <p className="mt-3 rounded-xl bg-sky-50 p-3 text-xs font-semibold text-sky-900">{installNotice}</p>}<p className="mt-5 text-center text-xs text-slate-500">Identité Orbit chiffrée · session auditée · aucune donnée de démonstration</p>
       </form>
     </section>
   </main>

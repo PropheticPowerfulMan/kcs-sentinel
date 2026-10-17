@@ -1,15 +1,19 @@
 {
-  "id": "/sentinel/",
+  "id": "/sentinel/?app=kcs-sentinel-2026",
   "name": "KCS SENTINEL",
   "short_name": "SENTINEL",
   "description": "Biometric attendance and school entrance control platform for KCS campuses.",
-  "theme_color": "#081120",
-  "background_color": "#02050a",
+  "theme_color": "#063c65",
+  "background_color": "#031d32",
   "display": "standalone",
   "orientation": "any",
-  "start_url": "/sentinel/",
+  "start_url": "/sentinel/?source=pwa-sentinel",
   "scope": "/sentinel/",
   "categories": ["education", "security", "productivity"],
+  "shortcuts": [
+    { "name": "Poste d’entrée", "short_name": "Entrée", "url": "/sentinel/gate?source=pwa-sentinel", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Mon suivi", "short_name": "Mon suivi", "url": "/sentinel/?source=pwa-sentinel", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ],
   "icons": [
     {
       "src": "./icons/icon-192.png",

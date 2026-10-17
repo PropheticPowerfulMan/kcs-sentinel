@@ -85,7 +85,7 @@ button {
   border-color:var(--sentinel-line)!important;
   box-shadow:12px 18px 42px rgba(0,18,30,.24)!important;
 }
-.sentinel-nav-item{min-height:54px;overflow:hidden}.sentinel-nav-item:hover{transform:translateX(2px)}
+.sentinel-nav-item{min-height:44px;overflow:hidden}.sentinel-nav-item:hover{transform:translateX(2px)}
 .sentinel-workspace :is(h1,h2,h3,h4,p,span,div,button,label,td,th){
   overflow-wrap:anywhere;
 }

@@ -67,5 +67,41 @@ router.post('/justifications',auth,safe(async(req:any,res)=>{const p=z.object({i
 router.get('/justifications',auth,safe(async(req:any,res)=>{const canManage=['admin','super_admin','school_admin','security_operator'].includes(String(req.sentinelUser.role).toLowerCase());const target=canManage&&req.query.personId?String(req.query.personId):req.sentinelUser.personId;const r=await pool.query('SELECT * FROM sentinel_justifications WHERE person_id=$1 ORDER BY incident_date DESC,created_at DESC LIMIT 250',[target]);res.json({justifications:r.rows});}));
 router.patch('/justifications/:id/review',auth,manager,safe(async(req:any,res)=>{const p=z.object({status:z.enum(['APPROVED','REJECTED']),reviewNote:z.string().trim().min(3).max(1000)}).parse(req.body);const r=await pool.query('UPDATE sentinel_justifications SET status=$2,review_note=$3,reviewer_id=$4,reviewed_at=NOW(),updated_at=NOW() WHERE id=$1 RETURNING *',[req.params.id,p.status,p.reviewNote,req.sentinelUser.sub]);if(!r.rows[0])return res.status(404).json({message:'Justification not found'});res.json(r.rows[0]);}));
 router.get('/reports/:personId',auth,safe(async(req:any,res)=>{if(req.sentinelUser.role==='entity'&&req.sentinelUser.personId!==req.params.personId)return res.status(403).json({message:'You may only view your own attendance'});res.json(await statistics(req.params.personId));}));
-async function statistics(personId:string){const r=await pool.query(`SELECT occurred_at,direction,gate,source FROM sentinel_movements WHERE person_id=$1 ORDER BY occurred_at DESC LIMIT 1000`,[personId]);const now=new Date();const windows=[['daily',1],['weekly',7],['monthly',31],['yearly',366]] as const;return {personId,generatedAt:now.toISOString(),periods:Object.fromEntries(windows.map(([name,days])=>{const floor=now.getTime()-days*86400000;const rows=r.rows.filter(x=>new Date(x.occurred_at).getTime()>=floor);return [name,{entries:rows.filter(x=>x.direction==='ENTRY').length,exits:rows.filter(x=>x.direction==='EXIT').length,movements:rows}]}))};}
+async function statistics(personId:string){
+  const result=await pool.query(`SELECT occurred_at,direction,gate,source FROM sentinel_movements WHERE person_id=$1 ORDER BY occurred_at DESC LIMIT 5000`,[personId]);
+  const now=new Date();
+  const schoolTimezone='Africa/Kinshasa';
+  const localParts=(date:Date)=>Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:schoolTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));
+  const localDateKey=(date:Date)=>{const parts=localParts(date);return `${parts.year}-${parts.month}-${parts.day}`;};
+  const localClockMinutes=(date:Date)=>{const parts=localParts(date);return Number(parts.hour)*60+Number(parts.minute);};
+  const windows=[['daily',1],['weekly',7],['monthly',31],['yearly',366]] as const;
+  const rows=result.rows.map(row=>({...row,occurredAt:new Date(row.occurred_at)})).filter(row=>Number.isFinite(row.occurredAt.getTime()));
+  const summarize=(days:number)=>{
+    const floor=now.getTime()-days*86400000;
+    const previousFloor=floor-days*86400000;
+    const current=rows.filter(row=>row.occurredAt.getTime()>=floor);
+    const previous=rows.filter(row=>row.occurredAt.getTime()>=previousFloor&&row.occurredAt.getTime()<floor);
+    const byDay=new Map<string,typeof current>();
+    for(const row of current){const key=localDateKey(row.occurredAt);byDay.set(key,[...(byDay.get(key)||[]),row]);}
+    const dayDetails=[...byDay.entries()].sort(([a],[b])=>b.localeCompare(a)).map(([date,events])=>{
+      const entries=events.filter(event=>event.direction==='ENTRY').sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime());
+      const exits=events.filter(event=>event.direction==='EXIT').sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime());
+      const firstEntry=entries[0]?.occurredAt??null; const lastExit=exits.at(-1)?.occurredAt??null;
+      const durationMinutes=firstEntry&&lastExit&&lastExit>firstEntry?Math.round((lastExit.getTime()-firstEntry.getTime())/60000):null;
+      const late=Boolean(firstEntry&&localClockMinutes(firstEntry)>450);
+      return {date,firstEntry:firstEntry?.toISOString()??null,lastExit:lastExit?.toISOString()??null,durationMinutes,late,gate:events[0]?.gate??null,source:events[0]?.source??null};
+    });
+    const arrivalMinutes=dayDetails.filter(day=>day.firstEntry).map(day=>localClockMinutes(new Date(day.firstEntry!)));
+    const departureMinutes=dayDetails.filter(day=>day.lastExit).map(day=>localClockMinutes(new Date(day.lastExit!)));
+    const durations=dayDetails.map(day=>day.durationMinutes).filter((value):value is number=>value!==null);
+    const attendanceDays=dayDetails.length; const lateDays=dayDetails.filter(day=>day.late).length;
+    const elapsedDays=Math.max(1,Math.min(days,Math.ceil((now.getTime()-floor)/86400000)));
+    let expectedSchoolDays=0; for(let index=0;index<elapsedDays;index+=1){const date=new Date(floor+index*86400000);if(date.getUTCDay()!==0&&date.getUTCDay()!==6)expectedSchoolDays+=1;}
+    const average=(values:number[])=>values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length):null;
+    const formatClock=(minutes:number|null)=>minutes===null?null:`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
+    const previousDays=new Set(previous.map(row=>localDateKey(row.occurredAt))).size;
+    return {entries:current.filter(row=>row.direction==='ENTRY').length,exits:current.filter(row=>row.direction==='EXIT').length,attendanceDays,completeDays:dayDetails.filter(day=>day.firstEntry&&day.lastExit).length,lateDays,punctualityRate:attendanceDays?Number((((attendanceDays-lateDays)/attendanceDays)*100).toFixed(1)):0,presenceRate:expectedSchoolDays?Number((Math.min(attendanceDays/expectedSchoolDays,1)*100).toFixed(1)):0,averageArrival:formatClock(average(arrivalMinutes)),averageDeparture:formatClock(average(departureMinutes)),totalPresenceMinutes:durations.reduce((sum,value)=>sum+value,0),averagePresenceMinutes:average(durations)??0,trendDays:attendanceDays-previousDays,dayDetails,movements:current.map(({occurredAt,...row})=>({...row,occurred_at:occurredAt.toISOString()}))};
+  };
+  return {personId,generatedAt:now.toISOString(),timezone:schoolTimezone,periods:Object.fromEntries(windows.map(([name,days])=>[name,summarize(days)]))};
+}
 export default router;
