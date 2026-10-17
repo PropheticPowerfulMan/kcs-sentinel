@@ -293,6 +293,7 @@ function App() {
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
   const [online, setOnline] = useState(window.navigator.onLine);
   const [kioskMode, setKioskMode] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unlockHolding, setUnlockHolding] = useState(false);
   const [gateState, setGateState] = useState<GateState>("idle");
   const [sensorMode, setSensorMode] = useState<SensorMode>("verify");
@@ -312,6 +313,7 @@ function App() {
 
   const navigateToView = (view: ViewMode, options?: { replace?: boolean }) => {
     setActiveView(view);
+    setMobileMenuOpen(false);
 
     const nextPath = getPathForView(view);
     if (window.location.pathname === nextPath) {
@@ -1454,7 +1456,7 @@ function App() {
 
     return (
       <aside className="sentinel-side-nav hidden md:block">
-        <div className="sticky top-[88px] rounded-[22px] border border-white/10 bg-white/[0.05] p-3 shadow-glow backdrop-blur-xl">
+        <div className="sticky top-[92px] min-h-[calc(100dvh-108px)] rounded-r-[22px] border border-l-0 border-white/10 bg-white/[0.05] p-3 shadow-glow backdrop-blur-xl">
           <div className="px-3 pb-4">
             <div className="text-xs uppercase tracking-[0.28em] text-slate-400">Navigation</div>
             <div className="mt-2 text-sm leading-6 text-slate-300">Passez d'une page métier à l'autre sans faire défiler tout l'écran.</div>
@@ -1486,8 +1488,29 @@ function App() {
     }
 
     return (
-      <nav className="sentinel-mobile-nav fixed inset-x-3 bottom-3 z-40 rounded-[20px] border border-white/10 bg-slate-950/88 p-2 shadow-[0_20px_50px_rgba(2,6,23,0.45)] backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-5 gap-2">
+      <>
+        <button
+          type="button"
+          aria-label="Fermer le menu"
+          onClick={() => setMobileMenuOpen(false)}
+          className={`sentinel-mobile-scrim fixed inset-0 z-40 bg-slate-950/65 backdrop-blur-sm transition-opacity md:hidden ${mobileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+        />
+        <nav
+          aria-label="Navigation principale"
+          className={`sentinel-mobile-nav fixed inset-y-0 left-0 z-50 flex w-[min(84vw,320px)] flex-col border-r border-white/10 bg-slate-950/95 p-4 shadow-[20px_0_60px_rgba(2,6,23,0.55)] backdrop-blur-xl transition-transform duration-300 md:hidden ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <SchoolLogo compact />
+            <button
+              type="button"
+              aria-label="Fermer le menu"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xl text-white"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-5 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
           {navigationItems.map((item) => {
             const isActive = activeView === item.key;
             return (
@@ -1495,26 +1518,48 @@ function App() {
                 key={item.key}
                 type="button"
                 onClick={() => navigateToView(item.key)}
-                className={`rounded-2xl px-2 py-3 text-center transition ${isActive ? item.activeClass : "bg-white/[0.04] text-slate-200"}`}
+                className={`sentinel-nav-item flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition ${isActive ? `${item.activeClass} border-transparent` : "border-white/10 bg-white/[0.04] text-slate-200"}`}
               >
-                <div className={`text-[9px] uppercase tracking-[0.2em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
-                <div className="mt-1 text-[11px] font-semibold leading-tight">{item.shortLabel}</div>
+                <div className="min-w-0">
+                  <div className={`text-[9px] uppercase tracking-[0.18em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
+                  <div className="mt-1 break-words text-sm font-semibold leading-tight">{item.label}</div>
+                </div>
+                <span aria-hidden="true" className="shrink-0 text-lg">›</span>
               </button>
             );
           })}
-        </div>
-      </nav>
+          </div>
+          <div className="mt-4 border-t border-white/10 pt-4 text-xs leading-5 text-slate-400">
+            KCS Sentinel · Contrôle sécurisé des entrées et sorties
+          </div>
+        </nav>
+      </>
     );
   };
 
   return (
     <div className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "mx-auto max-w-[1600px] px-3 py-3 pb-28 sm:px-5 sm:pb-10 lg:px-6"}`}>
-        <header className="sentinel-command-header sticky top-0 z-30 overflow-hidden rounded-[22px] border border-white/10 bg-white/5 p-4 shadow-glow backdrop-blur-xl sm:p-5">
+      <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-8"}`}>
+        <header className="sentinel-command-header sticky top-0 z-30 w-full overflow-hidden border-b border-white/10 bg-white/5 px-3 py-3 shadow-glow backdrop-blur-xl sm:px-5 lg:px-6">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
-          <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 flex flex-col gap-4">
-              <SchoolLogo />
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 flex flex-col gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                {!kioskMode && (
+                  <button
+                    type="button"
+                    aria-label="Ouvrir le menu"
+                    aria-expanded={mobileMenuOpen}
+                    onClick={() => setMobileMenuOpen(true)}
+                    className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 md:hidden"
+                  >
+                    <span className="h-0.5 w-5 rounded-full bg-white" />
+                    <span className="h-0.5 w-5 rounded-full bg-white" />
+                    <span className="h-0.5 w-5 rounded-full bg-white" />
+                  </button>
+                )}
+                <SchoolLogo />
+              </div>
               <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.24em] text-slate-300">
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{online ? "Online sync ready" : "Offline cache active"}</span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{isStandalone ? "Installed app" : "Browser mode"}</span>
@@ -1568,10 +1613,10 @@ function App() {
           </div>
         </header>
 
-        <div className={`sentinel-workspace mt-4 ${kioskMode ? "" : "md:grid md:grid-cols-[210px_minmax(0,1fr)] md:gap-4 lg:grid-cols-[220px_minmax(0,1fr)]"}`}>
+        <div className={`sentinel-workspace ${kioskMode ? "mt-4" : "md:grid md:grid-cols-[210px_minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]"}`}>
           {renderDesktopNavigation()}
 
-          <div className="min-w-0">
+          <main className="min-w-0 overflow-hidden px-3 pt-4 sm:px-5 lg:px-6">
         {activeView === "gate" ? (
           <section className="grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
@@ -1843,7 +1888,7 @@ function App() {
             </div>
           </section>
         ) : renderActivePage()}
-          </div>
+          </main>
         </div>
 
         {renderMobileNavigation()}
