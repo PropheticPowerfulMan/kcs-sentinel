@@ -348,7 +348,13 @@ const getSuccessScanMessage = (direction: AttendanceDirection, duplicate: boolea
   return duplicate ? "Empreinte reconnue, mais la présence a déjà été enregistrée aujourd'hui." : "Présence confirmée et enregistrée.";
 };
 
-function App() {
+type AppProps = {
+  language?: "fr" | "en";
+  onLanguageChange?: (language: "fr" | "en") => void;
+  onLogout?: () => void;
+};
+
+function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [overview, setOverview] = useState<DashboardOverview>({
     campus: "KCS Smart Campus - Main Gate",
     syncStatus: "Secure synchronization in progress",
@@ -1762,6 +1768,7 @@ function App() {
               );
             })}
           </div>
+          {onLogout && <button type="button" onClick={onLogout} className="sentinel-nav-item mt-3 w-full rounded-xl border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-left text-rose-100 transition hover:bg-rose-400/20"><div className="text-[9px] uppercase tracking-[0.16em] text-rose-200/75">Session</div><div className="mt-1 text-[13px] font-semibold leading-tight">{language === "fr" ? "Déconnexion" : "Sign out"}</div></button>}
         </div>
       </aside>
     );
@@ -1773,12 +1780,13 @@ function App() {
     }
 
     return (
-      <nav aria-label="Navigation principale" className="sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid grid-cols-5 gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden">
+      <nav aria-label="Navigation principale" className={`sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid ${onLogout ? "grid-cols-6" : "grid-cols-5"} gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden`}>
         {navigationItems.map((item) => {
           const isActive = activeView === item.key;
           const icon = ({ gate: "⌁", dashboard: "⌂", liveFeed: "◉", disciplinary: "▤", attendance: "◷" } as const)[item.key];
           return <button key={item.key} type="button" aria-current={isActive ? "page" : undefined} onClick={() => navigateToView(item.key)} className={`flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition active:scale-95 ${isActive ? item.activeClass : "text-slate-300 hover:bg-white/5"}`}><span aria-hidden="true" className="text-base leading-none">{icon}</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{item.shortLabel}</span></button>;
         })}
+        {onLogout && <button type="button" onClick={onLogout} className="flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center text-rose-200 transition active:scale-95"><span aria-hidden="true" className="text-base leading-none">↪</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{language === "fr" ? "Sortir" : "Exit"}</span></button>}
       </nav>
     );
   };
@@ -1800,6 +1808,7 @@ function App() {
             </div>
 
             <div className="sentinel-header-actions hidden flex-wrap gap-3 md:flex">
+              <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-cyan text-[#032942]" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-cyan text-[#032942]" : "text-white hover:bg-white/10"}`}>EN</button></div>
               {!kioskMode && (
                 <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
                   Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
@@ -1836,6 +1845,7 @@ function App() {
                   {unlockHolding ? "Maintenez pour sortir" : "Déverrouiller"}
                 </button>
               )}
+              {onLogout && <button type="button" onClick={onLogout} className="rounded-2xl border border-rose-300/25 bg-rose-400/10 px-5 py-3 text-sm font-semibold text-rose-100 hover:bg-rose-400/20">{language === "fr" ? "Déconnexion" : "Sign out"}</button>}
             </div>
           </div>
         </header>

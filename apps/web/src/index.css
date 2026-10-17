@@ -73,12 +73,12 @@ button {
   text-shadow:0 2px 22px rgba(0,16,30,.8);
 }
 .sentinel-login-form-panel{
-  background:linear-gradient(145deg,rgba(226,243,249,.88),rgba(205,232,242,.94));
-  backdrop-filter:blur(4px);
+  background:linear-gradient(145deg,rgba(3,31,52,.13),rgba(7,90,123,.24));
+  backdrop-filter:blur(1.5px);
 }
 @media(max-width:1023px){
   .sentinel-login-page{background-position:42% center}
-  .sentinel-login-form-panel{background:linear-gradient(180deg,rgba(3,31,52,.28),rgba(214,238,247,.91) 28%,rgba(224,243,249,.96))}
+  .sentinel-login-form-panel{background:linear-gradient(180deg,rgba(3,31,52,.22),rgba(5,58,82,.28))}
   .sentinel-login-card{max-height:calc(100dvh - 1.5rem);overflow:auto}
 }
 
