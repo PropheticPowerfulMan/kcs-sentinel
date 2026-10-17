@@ -426,6 +426,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [operationsReport, setOperationsReport] = useState<OperationsReport | null>(null);
   const [operationsReportBusy, setOperationsReportBusy] = useState(false);
   const [clockReference, setClockReference] = useState<ClockReference | null>(null);
+  const [schoolClockNow, setSchoolClockNow] = useState<Date | null>(null);
   const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: SCHOOL_TIME_ZONE }));
   const unlockTimerRef = useRef<number | null>(null);
   const sensorSurfaceRef = useRef<HTMLButtonElement | null>(null);
@@ -563,6 +564,30 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       }
     };
     void loadOperationsRegistry();
+  }, []);
+
+  useEffect(() => {
+    if (!clockReference) return;
+    const serverAnchor = Date.parse(clockReference.serverUtc);
+    if (!Number.isFinite(serverAnchor)) return;
+    const browserAnchor = Date.now();
+    const tick = () => setSchoolClockNow(new Date(serverAnchor + (Date.now() - browserAnchor)));
+    tick();
+    const interval = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(interval);
+  }, [clockReference]);
+
+  useEffect(() => {
+    const resynchronizeClock = async () => {
+      try {
+        const response = await sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(SCHOOL_TIME_ZONE)}`);
+        if (response.ok) setClockReference((await response.json()) as ClockReference);
+      } catch {
+        // Keep advancing from the last authoritative server timestamp until connectivity returns.
+      }
+    };
+    const interval = window.setInterval(() => void resynchronizeClock(), 60_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -1334,17 +1359,17 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     <div className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">Registre des présences du jour</div>
-          <div className="mt-2 text-sm text-slate-300">Cette zone affiche clairement chaque élève présent avec la date exacte, l'heure d'entrée et, dès qu'elle est enregistrée, l'heure de sortie.</div>
+          <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Registre des présences du jour", "Today’s attendance register")}</div>
+          <div className="mt-2 text-sm text-slate-300">{tr("Cette zone affiche clairement chaque élève présent avec la date exacte, l’heure d’entrée et, dès qu’elle est enregistrée, l’heure de sortie.", "This area lists every student present with the exact date, entry time and, once recorded, exit time.")}</div>
         </div>
         <div className="max-w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-center text-[11px] uppercase tracking-[0.18em] text-slate-300 sm:text-xs sm:tracking-[0.24em]">
-          {attendanceLog.length} élève(s) pointé(s)
+          {attendanceLog.length} {tr("élève(s) pointé(s)", "student check-in(s)")}
         </div>
       </div>
 
       {attendanceLog.length === 0 ? (
         <div className="mt-5 rounded-3xl border border-dashed border-white/10 bg-white/[0.03] p-5 text-sm leading-6 text-slate-300">
-          Aucun élève n'a encore été enregistré aujourd'hui. Utilisez le capteur en mode vérification pour l'entrée, puis en mode sortie pour l'heure de départ.
+          {tr("Aucun élève n’a encore été enregistré aujourd’hui. Utilisez le capteur en mode vérification pour l’entrée, puis en mode sortie pour l’heure de départ.", "No student has been recorded today. Use the scanner in verification mode for entry, then exit mode for departure.")}
         </div>
       ) : (
         <>
@@ -1357,7 +1382,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                     <div className="mt-1 break-words text-sm text-slate-300">{item.className}</div>
                   </div>
                   <div className={`rounded-full px-3 py-1 text-xs uppercase tracking-[0.18em] ${item.exitTimestamp ? "bg-signal/15 text-signal" : "bg-amber-500/15 text-amber-200"}`}>
-                    {item.exitTimestamp ? "Sortie faite" : "En attente sortie"}
+                    {item.exitTimestamp ? tr("Sortie faite", "Checked out") : tr("En attente de sortie", "Awaiting exit")}
                   </div>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -1366,15 +1391,15 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                     <div className="mt-2 text-sm text-white">{formatDateValue(item.entryTimestamp)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Entrée</div>
+                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{tr("Entrée", "Entry")}</div>
                     <div className="mt-2 text-sm text-white">{formatTimeValue(item.entryTimestamp)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Sortie</div>
+                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{tr("Sortie", "Exit")}</div>
                     <div className="mt-2 text-sm text-white">{formatTimeValue(item.exitTimestamp)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
-                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Point d'accès</div>
+                    <div className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{tr("Point d’accès", "Access point")}</div>
                     <div className="mt-2 break-words text-sm text-white">{item.entryPoint}</div>
                   </div>
                 </div>
@@ -1640,12 +1665,12 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     <section className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-teal-200">Registre institutionnel Orbit</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Personnel de l'école</h2>
-          <p className="mt-2 text-sm text-slate-300">Enseignants, staff administratif et workers actifs, synchronisés depuis le registre officiel.</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-teal-200">{tr("Registre institutionnel Orbit", "Orbit institutional register")}</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Personnel de l’école", "School staff")}</h2>
+          <p className="mt-2 text-sm text-slate-300">{tr("Enseignants, personnel administratif et autres employés actifs, synchronisés depuis le registre officiel.", "Active teachers, administrative staff and other employees synchronized from the official register.")}</p>
         </div>
-        <label className="w-full max-w-xl text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Recherche précise
-          <input type="search" value={staffRegisterSearch} onChange={(event) => setStaffRegisterSearch(event.target.value)} placeholder="Nom, code Orbit, e-mail ou fonction…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm normal-case tracking-normal text-white outline-none focus:border-teal-300" />
+        <label className="w-full max-w-xl text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{tr("Recherche précise", "Precise search")}
+          <input type="search" value={staffRegisterSearch} onChange={(event) => setStaffRegisterSearch(event.target.value)} placeholder={tr("Nom, code Orbit, e-mail ou fonction…", "Name, Orbit code, email or job title…")} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm normal-case tracking-normal text-white outline-none focus:border-teal-300" />
         </label>
       </div>
       <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
@@ -1666,12 +1691,12 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               key={card.key}
               className={`rounded-[26px] border border-white/10 bg-gradient-to-br ${card.tone} p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl`}
             >
-              <div className="text-sm uppercase tracking-[0.18em] text-slate-300 sm:tracking-[0.24em]">{card.label}</div>
+              <div className="text-sm uppercase tracking-[0.18em] text-slate-300 sm:tracking-[0.24em]">{tr(({ present: "Présents aujourd’hui", late: "Arrivées tardives", absent: "Absents", biometricSuccessRate: "Précision biométrique" } as const)[card.key], card.label)}</div>
               <div className="mt-4 break-words text-3xl font-semibold text-white sm:text-4xl">
                 {value}
                 {card.suffix ?? ""}
               </div>
-              <div className="mt-3 text-sm text-slate-300">{overview.storageMode ?? "Persistent ledger ready for integration."}</div>
+              <div className="mt-3 text-sm text-slate-300">{overview.storageMode ?? tr("Registre persistant prêt pour l’intégration.", "Persistent ledger ready for integration.")}</div>
             </article>
           );
         })}
@@ -1681,15 +1706,15 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
         <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Attendance Feed</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">Real-time biometric confirmations</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Flux des présences en direct", "Live attendance feed")}</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Confirmations biométriques en temps réel", "Real-time biometric confirmations")}</h2>
             </div>
             <button
               type="button"
               onClick={() => navigateToView("liveFeed")}
               className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan"
             >
-              Ouvrir le flux complet
+              {tr("Ouvrir le flux complet", "Open full feed")}
             </button>
           </div>
           <div className="mt-6 space-y-4">
@@ -1704,7 +1729,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                     </span>
                   </div>
                   <p className="mt-2 break-words text-sm text-slate-300">
-                    Entry point: {item.entryPoint} · Source: {item.source} · Verified at {new Date(item.timestamp).toLocaleTimeString()}
+                    {tr("Point d’entrée", "Entry point")}: {item.entryPoint} · {tr("Source", "Source")}: {item.source} · {tr("Vérifié à", "Verified at")} {new Date(item.timestamp).toLocaleTimeString(language === "fr" ? "fr-FR" : "en-US", { timeZone: SCHOOL_TIME_ZONE })}
                   </p>
                 </div>
                 <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
@@ -1715,14 +1740,14 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
         <div className="grid gap-6">
           <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Threat & Insight Layer</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">AI readiness matrix</h2>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Couche de sécurité et d’analyse", "Threat & insight layer")}</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Matrice de préparation IA", "AI readiness matrix")}</h2>
             <div className="mt-5 space-y-3">
               {Object.entries(overview.aiReadiness).map(([key, value]) => (
                 <div key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-950/45 px-4 py-3">
                   <span className="min-w-0 break-words capitalize text-slate-200">{key.replace(/([A-Z])/g, " $1")}</span>
                   <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${value ? "bg-signal/15 text-signal" : "bg-white/10 text-slate-300"}`}>
-                    {value ? "Ready" : "Pending"}
+                    {value ? tr("Prêt", "Ready") : tr("En attente", "Pending")}
                   </span>
                 </div>
               ))}
@@ -1732,8 +1757,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Platform Pillars</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">Parcours opérateur</h2>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Piliers de la plateforme", "Platform pillars")}</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Parcours opérateur", "Operator journey")}</h2>
               </div>
               <div className="flex flex-wrap gap-3">
                 <button
@@ -1741,14 +1766,14 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   onClick={() => navigateToView("disciplinary")}
                   className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
                 >
-                  Registre
+                  {tr("Registre", "Register")}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigateToView("attendance")}
                   className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
                 >
-                  Historique
+                  {tr("Historique", "History")}
                 </button>
               </div>
             </div>
@@ -1770,13 +1795,13 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Live Attendance Feed</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Toutes les confirmations biométriques</h2>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Flux des présences en direct", "Live attendance feed")}</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Toutes les confirmations biométriques", "All biometric confirmations")}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            Cette page regroupe uniquement le flux temps réel pour éviter de faire défiler tout le dashboard lorsqu'on supervise les arrivées.
+            {tr("Cette page regroupe uniquement le flux temps réel pour éviter de faire défiler tout le tableau de bord lorsqu’on supervise les arrivées.", "This page keeps the real-time feed in one place, avoiding long dashboard scrolling while arrivals are monitored.")}
           </p>
         </div>
-        <div className="max-w-full rounded-full border border-signal/30 bg-signal/10 px-4 py-2 text-center text-sm text-signal">{overview.metrics.present + overview.metrics.late} pointages du jour</div>
+        <div className="max-w-full rounded-full border border-signal/30 bg-signal/10 px-4 py-2 text-center text-sm text-signal">{overview.metrics.present + overview.metrics.late} {tr("pointages du jour", "check-ins today")}</div>
       </div>
       <div className="mt-6 space-y-4">
         {overview.liveFeed.map((item) => (
@@ -1790,7 +1815,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                 </span>
               </div>
               <p className="mt-2 break-words text-sm text-slate-300">
-                Entry point: {item.entryPoint} · Source: {item.source} · Verified at {new Date(item.timestamp).toLocaleTimeString()}
+                {tr("Point d’entrée", "Entry point")}: {item.entryPoint} · {tr("Source", "Source")}: {item.source} · {tr("Vérifié à", "Verified at")} {new Date(item.timestamp).toLocaleTimeString(language === "fr" ? "fr-FR" : "en-US", { timeZone: SCHOOL_TIME_ZONE })}
               </p>
             </div>
             <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
@@ -1887,7 +1912,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>EN</button></div>
               {!kioskMode && (
                 <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
-                  Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
+                  {tr("Page active", "Active page")} : <span className="font-semibold text-white">{translatedNavigation[activeView]?.label ?? tr("Tableau de bord", "Dashboard")}</span>
                 </div>
               )}
               <button
@@ -1897,7 +1922,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                 }}
                 className="rounded-2xl border border-neon/20 bg-neon/15 px-5 py-3 text-sm font-semibold text-white max-sm:w-full"
               >
-                Installer l'app
+                {tr("Installer l’application", "Install app")}
               </button>
               {!kioskMode ? (
                 <button
@@ -1907,7 +1932,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   }}
                   className="rounded-2xl bg-cyan px-5 py-3 text-sm font-semibold text-slate-950 max-sm:w-full"
                 >
-                  Mode kiosque
+                  {tr("Mode kiosque", "Kiosk mode")}
                 </button>
               ) : (
                 <button
@@ -1918,7 +1943,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   onPointerCancel={cancelUnlockHold}
                   className={`rounded-2xl px-5 py-3 text-sm font-semibold max-sm:w-full ${unlockHolding ? "bg-amber-400 text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}
                 >
-                  {unlockHolding ? "Maintenez pour sortir" : "Déverrouiller"}
+                  {unlockHolding ? tr("Maintenez pour sortir", "Hold to exit") : tr("Déverrouiller", "Unlock")}
                 </button>
               )}
               {onLogout && <button type="button" onClick={onLogout} className="rounded-2xl border border-rose-300/25 bg-rose-400/10 px-5 py-3 text-sm font-semibold text-rose-100 hover:bg-rose-400/20">{language === "fr" ? "Déconnexion" : "Sign out"}</button>}
@@ -1935,17 +1960,17 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-[0.32em] text-slate-400">School Entrance Station</div>
-                  <h1 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">Poste d'entrée biométrique</h1>
+                  <div className="text-xs uppercase tracking-[0.32em] text-slate-400">{tr("Poste d’entrée de l’école", "School entrance station")}</div>
+                  <h1 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">{tr("Poste d’entrée biométrique", "Biometric entrance desk")}</h1>
                 </div>
                 <div className="max-w-full rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-center text-xs uppercase tracking-[0.2em] text-cyan sm:tracking-[0.24em]">{ENTRY_POINT}</div>
               </div>
 
-              <div className="mt-5 grid gap-2 rounded-2xl border border-white/10 bg-slate-950/55 p-2 sm:grid-cols-3" role="tablist" aria-label="Espaces du poste d'entrée">
+              <div className="mt-5 grid gap-2 rounded-2xl border border-white/10 bg-slate-950/55 p-2 sm:grid-cols-3" role="tablist" aria-label={tr("Espaces du poste d’entrée", "Entrance desk workspaces")}>
                 {([
-                  ["identity", "Identités & visiteurs", "Recherche Orbit et pointage nominatif"],
-                  ["biometric", "Biométrie", "Empreintes et enrôlement"],
-                  ["operations", "Suivi opérationnel", "Registre, guide et flux live"]
+                  ["identity", tr("Identités et visiteurs", "People and visitors"), tr("Recherche Orbit et pointage nominatif", "Orbit search and named check-in")],
+                  ["biometric", tr("Biométrie", "Biometrics"), tr("Empreintes et enrôlement", "Fingerprints and enrollment")],
+                  ["operations", tr("Suivi opérationnel", "Operations monitoring"), tr("Registre, guide et flux en direct", "Register, guide and live feed")]
                 ] as const).map(([workspace, label, description]) => (
                   <button
                     key={workspace}
@@ -1964,14 +1989,14 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               <div className={`${gateWorkspace === "identity" ? "block" : "hidden"} mt-6 rounded-[28px] border border-cyan/20 bg-slate-950/45 p-4 sm:p-5`}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="text-xs uppercase tracking-[0.24em] text-cyan">Pointage universel et registre nominatif</div>
-                    <h2 className="mt-2 text-xl font-semibold text-white">Identifier une entité KCS ou un visiteur</h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">L'heure enregistrée vient du serveur Sentinel/PostgreSQL et s'affiche exclusivement dans le fuseau officiel de l'école : Africa/Kinshasa.</p>
+                    <div className="text-xs uppercase tracking-[0.24em] text-cyan">{tr("Pointage universel et registre nominatif", "Universal attendance and named register")}</div>
+                    <h2 className="mt-2 text-xl font-semibold text-white">{tr("Identifier une entité KCS ou un visiteur", "Identify a KCS person or visitor")}</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{tr("L’heure enregistrée vient du serveur Sentinel/PostgreSQL et s’affiche exclusivement dans le fuseau officiel de l’école : Africa/Kinshasa.", "Recorded time comes from the Sentinel/PostgreSQL server and is displayed exclusively in the school’s official timezone: Africa/Kinshasa.")}</p>
                   </div>
                   <div className="max-w-full rounded-2xl border border-signal/25 bg-signal/10 px-4 py-3 text-xs leading-5 text-signal">
-                    <strong className="block text-white">Heure officielle serveur</strong>
-                    {clockReference ? formatDateTimeValue(clockReference.serverUtc) : "Synchronisation…"}<br />
-                    <span className="text-slate-300">Fuseau officiel : {SCHOOL_TIME_ZONE}</span>
+                    <strong className="block text-white">{tr("Heure officielle serveur", "Official server time")}</strong>
+                    {schoolClockNow ? formatDateTimeValue(schoolClockNow.toISOString()) : "Synchronisation…"}<br />
+                    <span className="text-slate-300">{tr("Fuseau officiel", "Official timezone")} : {SCHOOL_TIME_ZONE}</span>
                   </div>
                 </div>
 

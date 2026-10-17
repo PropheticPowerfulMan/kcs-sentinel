@@ -54,7 +54,32 @@ button {
 .sentinel-button-label{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:.55rem}
 .sentinel-button-label.is-busy::before{content:"";width:1rem;height:1rem;border:2px solid currentColor;border-right-color:transparent;border-radius:999px;animation:sentinel-spin .7s linear infinite}
 @keyframes sentinel-spin{to{transform:rotate(360deg)}}
-.sentinel-login-card{animation:sentinel-card-in .55s cubic-bezier(.2,.8,.2,1) both}
+.sentinel-login-card{
+  animation:sentinel-card-in .55s cubic-bezier(.2,.8,.2,1) both;
+  background:linear-gradient(145deg,rgba(232,247,253,.97),rgba(207,235,247,.95))!important;
+  border-color:rgba(165,231,243,.9)!important;
+  color:#082f49;
+}
+.sentinel-login-kicker{color:#036b8f!important;text-shadow:none}
+.sentinel-login-title{color:#06385c!important;text-shadow:none}
+.sentinel-login-help{color:#315c72!important;text-shadow:none}
+.sentinel-login-label{color:#163f59!important;text-shadow:none}
+.sentinel-login-card .sentinel-login-input{
+  background:#edf8fc!important;
+  color:#061f35!important;
+  border-color:#7cc9df!important;
+  -webkit-text-fill-color:#061f35;
+}
+.sentinel-primary-action{
+  background:linear-gradient(105deg,#facc15,#67e8f9 58%,#2dd4bf)!important;
+  border:1px solid rgba(254,240,138,.9)!important;
+  color:#032942!important;
+  box-shadow:0 14px 34px rgba(250,204,21,.24),0 0 0 1px rgba(255,255,255,.12) inset!important;
+}
+.sentinel-primary-action:hover{
+  filter:brightness(1.08);
+  box-shadow:0 18px 40px rgba(45,212,191,.28)!important;
+}
 .sentinel-login-shimmer{background:linear-gradient(90deg,#0ea5e9,#2dd4bf,#0ea5e9);background-size:200% 100%;animation:sentinel-shimmer 4s linear infinite}
 .sentinel-login-input{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
 .sentinel-login-input:focus{transform:translateY(-1px)}
