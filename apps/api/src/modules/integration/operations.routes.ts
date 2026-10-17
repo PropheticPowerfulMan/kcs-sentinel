@@ -89,8 +89,11 @@ router.get('/me',auth,safe(async(req:any,res)=>{
 router.get('/alerts',auth,safe(async(req:any,res)=>res.json({alerts:await listAlerts(req.sentinelUser.personId)})));
 router.get('/directory',auth,manager,safe(async(req,res)=>{const q=String(req.query.q||'').trim().toLowerCase();const people=await loadOrbitDirectory(req.query.refresh==='true');res.json({people:(q?people.filter(p=>[p.fullName,p.email,p.displayId,p.className,p.jobTitle].some(v=>v?.toLowerCase().includes(q))):people).slice(0,250)});}));
 router.get('/time/reference',auth,safe(async(req,res)=>{
-  const result=await pool.query<{server_utc:string;kinshasa_time:string}>("SELECT TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS server_utc, TO_CHAR(NOW() AT TIME ZONE 'Africa/Kinshasa', 'YYYY-MM-DD HH24:MI:SS') AS kinshasa_time");
-  res.json({serverUtc:result.rows[0]?.server_utc??new Date().toISOString(),schoolTime:result.rows[0]?.kinshasa_time,schoolTimezone:'Africa/Kinshasa',deviceTimezone:String(req.query.timezone||'UTC'),authority:'PostgreSQL authoritative clock'});
+  const result=await pool.query<{server_utc:string;server_epoch_ms:string;kinshasa_time:string}>("SELECT TO_CHAR(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS server_utc, FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::text AS server_epoch_ms, TO_CHAR(clock_timestamp() AT TIME ZONE 'Africa/Kinshasa', 'YYYY-MM-DD HH24:MI:SS') AS kinshasa_time");
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma','no-cache');
+  res.set('Expires','0');
+  res.json({serverUtc:result.rows[0]?.server_utc??new Date().toISOString(),serverEpochMs:Number(result.rows[0]?.server_epoch_ms??Date.now()),schoolTime:result.rows[0]?.kinshasa_time,schoolTimezone:'Africa/Kinshasa',deviceTimezone:String(req.query.timezone||'UTC'),authority:'PostgreSQL clock_timestamp authoritative clock'});
 }));
 router.post('/biometrics/orbit/:personId/enroll',auth,manager,safe(async(req:any,res)=>{
   const person=(await loadOrbitDirectory()).find(item=>item.id===req.params.personId);

@@ -58,7 +58,7 @@ type VisitorDirectoryItem = {
   last_visit_at?: string | null;
 };
 type DeviceContext = { timezone: string; latitude?: number; longitude?: number };
-type ClockReference = { serverUtc: string; deviceTimezone: string; authority: string };
+type ClockReference = { serverUtc: string; serverEpochMs?: number; deviceTimezone: string; authority: string };
 const SCHOOL_TIME_ZONE = "Africa/Kinshasa";
 type OperationsPeriod = "daily" | "weekly" | "monthly" | "yearly";
 type OperationsReport = { from: string; to: string; timezone: string; generatedAt: string; summary: { movements: number; entries: number; exits: number; orbitMovements: number; visitorMovements: number; uniquePeople: number; presentEmployees: number }; employeePresence: Array<{ person_id: string; fullName: string; kind: string; displayId?: string | null; jobTitle?: string | null; firstEntry?: string | null; lastExit?: string | null; latestDirection: "ENTRY" | "EXIT" }>; movements: Array<{ id: string; fullName: string; kind: string; person_type: "ORBIT" | "VISITOR"; direction: "ENTRY" | "EXIT"; occurred_at: string; gate: string; source: string }> };
@@ -241,6 +241,18 @@ const formatDateTimeValue = (value: string) =>
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit"
+  });
+
+const formatSchoolClock = (value: Date) =>
+  value.toLocaleString("fr-FR", {
+    timeZone: SCHOOL_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
   });
 
 const toDateKey = (value: Date) => {
@@ -543,10 +555,9 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
     const loadOperationsRegistry = async () => {
       try {
-        const [directoryResponse, visitorsResponse, clockResponse] = await Promise.all([
+        const [directoryResponse, visitorsResponse] = await Promise.all([
           sentinelFetch(`${API_URL}/directory`),
-          sentinelFetch(`${API_URL}/visitors`),
-          sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(timezone)}`)
+          sentinelFetch(`${API_URL}/visitors`)
         ]);
         if (directoryResponse.ok) {
           setOrbitDirectory(((await directoryResponse.json()) as { people: OrbitDirectoryPerson[] }).people ?? []);
@@ -555,7 +566,6 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           setOrbitDirectoryError("Le registre Orbit n'a pas pu être chargé.");
         }
         if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
-        if (clockResponse.ok) setClockReference((await clockResponse.json()) as ClockReference);
       } catch {
         setMovementNotice("Le registre opérationnel se resynchronisera automatiquement dès que la liaison sera disponible.");
         setOrbitDirectoryError("Liaison Orbit momentanément indisponible.");
@@ -568,10 +578,12 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
   useEffect(() => {
     if (!clockReference) return;
-    const serverAnchor = Date.parse(clockReference.serverUtc);
+    const serverAnchor = Number(clockReference.serverEpochMs ?? Date.parse(clockReference.serverUtc));
     if (!Number.isFinite(serverAnchor)) return;
-    const browserAnchor = Date.now();
-    const tick = () => setSchoolClockNow(new Date(serverAnchor + (Date.now() - browserAnchor)));
+    // performance.now() is monotonic: manual changes to the device clock cannot
+    // move or freeze Sentinel's authoritative school clock.
+    const browserAnchor = performance.now();
+    const tick = () => setSchoolClockNow(new Date(serverAnchor + (performance.now() - browserAnchor)));
     tick();
     const interval = window.setInterval(tick, 1_000);
     return () => window.clearInterval(interval);
@@ -580,14 +592,27 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   useEffect(() => {
     const resynchronizeClock = async () => {
       try {
-        const response = await sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(SCHOOL_TIME_ZONE)}`);
+        const response = await sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(SCHOOL_TIME_ZONE)}&nonce=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache" }
+        });
         if (response.ok) setClockReference((await response.json()) as ClockReference);
       } catch {
         // Keep advancing from the last authoritative server timestamp until connectivity returns.
       }
     };
-    const interval = window.setInterval(() => void resynchronizeClock(), 60_000);
-    return () => window.clearInterval(interval);
+    const resynchronizeWhenVisible = () => {
+      if (document.visibilityState === "visible") void resynchronizeClock();
+    };
+    void resynchronizeClock();
+    const interval = window.setInterval(() => void resynchronizeClock(), 15_000);
+    document.addEventListener("visibilitychange", resynchronizeWhenVisible);
+    window.addEventListener("online", resynchronizeWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", resynchronizeWhenVisible);
+      window.removeEventListener("online", resynchronizeWhenVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -1995,7 +2020,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   </div>
                   <div className="max-w-full rounded-2xl border border-signal/25 bg-signal/10 px-4 py-3 text-xs leading-5 text-signal">
                     <strong className="block text-white">{tr("Heure officielle serveur", "Official server time")}</strong>
-                    {schoolClockNow ? formatDateTimeValue(schoolClockNow.toISOString()) : "Synchronisation…"}<br />
+                    {schoolClockNow ? formatSchoolClock(schoolClockNow) : "Synchronisation…"}<br />
                     <span className="text-slate-300">{tr("Fuseau officiel", "Official timezone")} : {SCHOOL_TIME_ZONE}</span>
                   </div>
                 </div>

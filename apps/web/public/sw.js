@@ -1,4 +1,4 @@
-const CACHE_NAME = "kcs-sentinel-shell-v8";
+const CACHE_NAME = "kcs-sentinel-shell-v9-clock";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [
@@ -48,6 +48,22 @@ self.addEventListener("fetch", (event) => {
           const cachedPage = await caches.match(event.request);
           return cachedPage ?? caches.match(toScopedPath("./"));
         })
+    );
+    return;
+  }
+
+  const isCodeAsset = ["script", "style", "worker"].includes(event.request.destination);
+  if (isCodeAsset) {
+    event.respondWith(
+      fetch(event.request, { cache: "no-store" })
+        .then((response) => {
+          if (response.ok && event.request.url.startsWith(self.location.origin)) {
+            const clone = response.clone();
+            void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }

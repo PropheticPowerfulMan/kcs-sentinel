@@ -6,6 +6,12 @@ import "./index.css";
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
+    let reloadingForSentinelUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForSentinelUpdate) return;
+      reloadingForSentinelUpdate = true;
+      window.location.reload();
+    });
     const sentinelScope = new URL(import.meta.env.BASE_URL, window.location.origin).href;
     void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
       // Retire an obsolete root-scoped Nexus worker before installing Sentinel's
