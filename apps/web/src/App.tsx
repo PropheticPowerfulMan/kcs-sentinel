@@ -35,6 +35,26 @@ type StatCard = {
   tone: string;
   suffix?: string;
 };
+type OrbitDirectoryPerson = {
+  id: string;
+  displayId?: string;
+  fullName: string;
+  email?: string | null;
+  className?: string | null;
+  jobTitle?: string | null;
+  kind: "STUDENT" | "TEACHER" | "STAFF" | "PARENT";
+};
+type VisitorDirectoryItem = {
+  id: string;
+  full_name: string;
+  last_name?: string | null;
+  middle_name?: string | null;
+  first_name?: string | null;
+  purpose?: string | null;
+  host_name?: string | null;
+};
+type DeviceContext = { timezone: string; latitude?: number; longitude?: number };
+type ClockReference = { serverUtc: string; deviceTimezone: string; authority: string };
 
 const statCards = [
   { key: "present", label: "Present Today", tone: "from-cyan/30 to-cyan/5" },
@@ -307,6 +327,15 @@ function App() {
   const [calendarDate, setCalendarDate] = useState(() => toDateKey(new Date()));
   const [calendarLabel, setCalendarLabel] = useState("Jour férié / jour non ouvré");
   const [calendarIsSchoolDay, setCalendarIsSchoolDay] = useState(false);
+  const [orbitDirectory, setOrbitDirectory] = useState<OrbitDirectoryPerson[]>([]);
+  const [orbitSearch, setOrbitSearch] = useState("");
+  const [visitors, setVisitors] = useState<VisitorDirectoryItem[]>([]);
+  const [visitorSearch, setVisitorSearch] = useState("");
+  const [visitorForm, setVisitorForm] = useState({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
+  const [movementBusy, setMovementBusy] = useState("");
+  const [movementNotice, setMovementNotice] = useState("");
+  const [clockReference, setClockReference] = useState<ClockReference | null>(null);
+  const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }));
   const unlockTimerRef = useRef<number | null>(null);
   const sensorSurfaceRef = useRef<HTMLButtonElement | null>(null);
   const isNavigatingFromHistoryRef = useRef(false);
@@ -391,6 +420,89 @@ function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    setDeviceContext({ timezone });
+    if (window.isSecureContext && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => setDeviceContext({ timezone, latitude: coords.latitude, longitude: coords.longitude }),
+        () => setDeviceContext({ timezone }),
+        { enableHighAccuracy: false, maximumAge: 15 * 60_000, timeout: 4_000 }
+      );
+    }
+
+    const loadOperationsRegistry = async () => {
+      try {
+        const [directoryResponse, visitorsResponse, clockResponse] = await Promise.all([
+          sentinelFetch(`${API_URL}/directory`),
+          sentinelFetch(`${API_URL}/visitors`),
+          sentinelFetch(`${API_URL}/time/reference?timezone=${encodeURIComponent(timezone)}`)
+        ]);
+        if (directoryResponse.ok) setOrbitDirectory(((await directoryResponse.json()) as { people: OrbitDirectoryPerson[] }).people ?? []);
+        if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
+        if (clockResponse.ok) setClockReference((await clockResponse.json()) as ClockReference);
+      } catch {
+        setMovementNotice("Le registre opérationnel se resynchronisera automatiquement dès que la liaison sera disponible.");
+      }
+    };
+    void loadOperationsRegistry();
+  }, []);
+
+  const visibleOrbitPeople = useMemo(() => {
+    const query = orbitSearch.trim().toLocaleLowerCase("fr");
+    if (!query) return orbitDirectory.slice(0, 8);
+    return orbitDirectory.filter((person) => [person.fullName, person.displayId, person.email, person.className, person.jobTitle].some((value) => value?.toLocaleLowerCase("fr").includes(query))).slice(0, 12);
+  }, [orbitDirectory, orbitSearch]);
+
+  const visibleVisitors = useMemo(() => {
+    const query = visitorSearch.trim().toLocaleLowerCase("fr");
+    if (!query) return visitors.slice(0, 8);
+    return visitors.filter((visitor) => visitor.full_name.toLocaleLowerCase("fr").includes(query)).slice(0, 12);
+  }, [visitorSearch, visitors]);
+
+  const registerMovement = async (personId: string, personType: "ORBIT" | "VISITOR", direction: "ENTRY" | "EXIT", label: string) => {
+    const operationKey = `${personType}:${personId}:${direction}`;
+    setMovementBusy(operationKey);
+    setMovementNotice("");
+    try {
+      const response = await sentinelFetch(`${API_URL}/movements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personId, personType, direction, gate: ENTRY_POINT, source: "MANUAL", deviceContext })
+      });
+      const payload = await response.json() as { occurredAt?: string; message?: string };
+      if (!response.ok) throw new Error(payload.message || "Pointage refusé");
+      const verifiedTime = payload.occurredAt ? formatDateTimeValue(payload.occurredAt) : "heure serveur validée";
+      setMovementNotice(`${direction === "ENTRY" ? "Entrée" : "Sortie"} confirmée pour ${label} · ${verifiedTime} · horloge serveur.`);
+    } catch (error) {
+      setMovementNotice(error instanceof Error ? error.message : "Le pointage n'a pas pu être enregistré.");
+    } finally {
+      setMovementBusy("");
+    }
+  };
+
+  const createVisitor = async () => {
+    setMovementBusy("visitor:create");
+    setMovementNotice("");
+    try {
+      const response = await sentinelFetch(`${API_URL}/visitors`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(visitorForm)
+      });
+      const payload = await response.json() as { id?: string; fullName?: string; message?: string };
+      if (!response.ok || !payload.id) throw new Error(payload.message || "Enregistrement du visiteur refusé");
+      const visitor: VisitorDirectoryItem = { id: payload.id, full_name: payload.fullName || [visitorForm.lastName, visitorForm.middleName, visitorForm.firstName].filter(Boolean).join(" "), purpose: visitorForm.purpose, host_name: visitorForm.hostName };
+      setVisitors((current) => [visitor, ...current]);
+      setVisitorForm({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
+      setMovementNotice(`${visitor.full_name} est enregistré dans le registre visiteurs et peut maintenant être pointé.`);
+    } catch (error) {
+      setMovementNotice(error instanceof Error ? error.message : "Le visiteur n'a pas pu être enregistré.");
+    } finally {
+      setMovementBusy("");
+    }
+  };
 
   useEffect(() => {
     const hasExplicitRoute = Object.values(viewPaths).includes(normalizeRoutePath(window.location.pathname));
@@ -1626,6 +1738,79 @@ function App() {
                   <h1 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">Poste d'entrée biométrique</h1>
                 </div>
                 <div className="max-w-full rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-center text-xs uppercase tracking-[0.2em] text-cyan sm:tracking-[0.24em]">{ENTRY_POINT}</div>
+              </div>
+
+              <div className="mt-6 rounded-[28px] border border-cyan/20 bg-slate-950/45 p-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase tracking-[0.24em] text-cyan">Pointage universel et registre nominatif</div>
+                    <h2 className="mt-2 text-xl font-semibold text-white">Identifier une entité KCS ou un visiteur</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">L'heure enregistrée vient du serveur Sentinel/PostgreSQL. Le fuseau de l'appareil est détecté automatiquement pour l'affichage local, sans pouvoir modifier l'heure officielle.</p>
+                  </div>
+                  <div className="max-w-full rounded-2xl border border-signal/25 bg-signal/10 px-4 py-3 text-xs leading-5 text-signal">
+                    <strong className="block text-white">Heure officielle serveur</strong>
+                    {clockReference ? formatDateTimeValue(clockReference.serverUtc) : "Synchronisation…"}<br />
+                    <span className="text-slate-300">Fuseau détecté : {deviceContext.timezone}</span>
+                  </div>
+                </div>
+
+                {movementNotice && <div className="mt-4 rounded-2xl border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm leading-6 text-cyan">{movementNotice}</div>}
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  <section className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Entités KCS · registre Orbit</div>
+                    <label className="mt-3 block text-sm font-medium text-white" htmlFor="orbit-person-search">Nom, e-mail, code ou identifiant Orbit</label>
+                    <input id="orbit-person-search" value={orbitSearch} onChange={(event) => setOrbitSearch(event.target.value)} placeholder="Rechercher une entité KCS…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                    <div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
+                      {visibleOrbitPeople.map((person) => (
+                        <article key={person.id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="break-words font-semibold text-white">{person.fullName}</div>
+                              <div className="mt-1 break-words text-xs text-slate-400">{person.kind} · {person.displayId || person.id}{person.className ? ` · ${person.className}` : ""}</div>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              {(["ENTRY", "EXIT"] as const).map((direction) => {
+                                const key = `ORBIT:${person.id}:${direction}`;
+                                return <button key={direction} type="button" disabled={Boolean(movementBusy)} onClick={() => void registerMovement(person.id, "ORBIT", direction, person.fullName)} className={`rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50 ${direction === "ENTRY" ? "bg-cyan text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}>{movementBusy === key ? "Traitement…" : direction === "ENTRY" ? "Entrée" : "Sortie"}</button>;
+                              })}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                      {visibleOrbitPeople.length === 0 && <p className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">Aucune identité Orbit ne correspond à cette recherche.</p>}
+                    </div>
+                  </section>
+
+                  <section className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+                    <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Visiteurs · identité nominative</div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <input value={visitorForm.lastName} onChange={(event) => setVisitorForm((current) => ({ ...current, lastName: event.target.value }))} placeholder="Nom *" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-white" />
+                      <input value={visitorForm.middleName} onChange={(event) => setVisitorForm((current) => ({ ...current, middleName: event.target.value }))} placeholder="Post-nom" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-white" />
+                      <input value={visitorForm.firstName} onChange={(event) => setVisitorForm((current) => ({ ...current, firstName: event.target.value }))} placeholder="Prénom *" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-white" />
+                      <input value={visitorForm.purpose} onChange={(event) => setVisitorForm((current) => ({ ...current, purpose: event.target.value }))} placeholder="Motif de visite *" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-white sm:col-span-2" />
+                      <input value={visitorForm.hostName} onChange={(event) => setVisitorForm((current) => ({ ...current, hostName: event.target.value }))} placeholder="Personne visitée *" className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2.5 text-white" />
+                    </div>
+                    <button type="button" disabled={Boolean(movementBusy) || !visitorForm.lastName.trim() || !visitorForm.firstName.trim() || !visitorForm.purpose.trim() || !visitorForm.hostName.trim()} onClick={() => void createVisitor()} className="mt-3 w-full rounded-xl bg-neon px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{movementBusy === "visitor:create" ? "Enregistrement…" : "Enregistrer le visiteur"}</button>
+                    <label className="mt-4 block text-sm font-medium text-white" htmlFor="visitor-search">Retrouver un visiteur par son nom complet</label>
+                    <input id="visitor-search" value={visitorSearch} onChange={(event) => setVisitorSearch(event.target.value)} placeholder="Nom, post-nom ou prénom…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
+                    <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                      {visibleVisitors.map((visitor) => (
+                        <article key={visitor.id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0"><div className="break-words font-semibold text-white">{visitor.full_name}</div><div className="mt-1 break-words text-xs text-slate-400">{visitor.purpose || "Visiteur"}{visitor.host_name ? ` · visite ${visitor.host_name}` : ""}</div></div>
+                            <div className="flex shrink-0 gap-2">
+                              {(["ENTRY", "EXIT"] as const).map((direction) => {
+                                const key = `VISITOR:${visitor.id}:${direction}`;
+                                return <button key={direction} type="button" disabled={Boolean(movementBusy)} onClick={() => void registerMovement(visitor.id, "VISITOR", direction, visitor.full_name)} className={`rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50 ${direction === "ENTRY" ? "bg-cyan text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}>{movementBusy === key ? "Traitement…" : direction === "ENTRY" ? "Entrée" : "Sortie"}</button>;
+                              })}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </div>
               </div>
 
               <div className="mt-6 grid gap-5 2xl:grid-cols-[0.95fr_1.05fr]">

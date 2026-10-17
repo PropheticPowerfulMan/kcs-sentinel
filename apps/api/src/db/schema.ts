@@ -32,10 +32,14 @@ export const databaseSchema = `
   );
 
   CREATE TABLE IF NOT EXISTS sentinel_visitors (
-    id UUID PRIMARY KEY, full_name TEXT NOT NULL, phone TEXT, organization TEXT,
+    id UUID PRIMARY KEY, full_name TEXT NOT NULL, last_name TEXT, middle_name TEXT, first_name TEXT, phone TEXT, organization TEXT,
     purpose TEXT NOT NULL, host_name TEXT NOT NULL, id_document TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  ALTER TABLE sentinel_visitors ADD COLUMN IF NOT EXISTS last_name TEXT;
+  ALTER TABLE sentinel_visitors ADD COLUMN IF NOT EXISTS middle_name TEXT;
+  ALTER TABLE sentinel_visitors ADD COLUMN IF NOT EXISTS first_name TEXT;
 
   CREATE TABLE IF NOT EXISTS sentinel_movements (
     id UUID PRIMARY KEY, person_id TEXT NOT NULL,
@@ -43,8 +47,14 @@ export const databaseSchema = `
     direction TEXT NOT NULL CHECK (direction IN ('ENTRY','EXIT')),
     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), gate TEXT NOT NULL,
     source TEXT NOT NULL CHECK (source IN ('BIOMETRIC','QR','MANUAL')),
-    recorded_by TEXT NOT NULL
+    recorded_by TEXT NOT NULL,
+    observed_timezone TEXT NOT NULL DEFAULT 'UTC',
+    observed_latitude DOUBLE PRECISION,
+    observed_longitude DOUBLE PRECISION
   );
+  ALTER TABLE sentinel_movements ADD COLUMN IF NOT EXISTS observed_timezone TEXT NOT NULL DEFAULT 'UTC';
+  ALTER TABLE sentinel_movements ADD COLUMN IF NOT EXISTS observed_latitude DOUBLE PRECISION;
+  ALTER TABLE sentinel_movements ADD COLUMN IF NOT EXISTS observed_longitude DOUBLE PRECISION;
   CREATE INDEX IF NOT EXISTS sentinel_movements_person_time_idx ON sentinel_movements(person_id, occurred_at DESC);
   CREATE INDEX IF NOT EXISTS sentinel_movements_time_idx ON sentinel_movements(occurred_at DESC);
   CREATE TABLE IF NOT EXISTS sentinel_biometric_identities (
