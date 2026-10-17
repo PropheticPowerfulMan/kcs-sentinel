@@ -42,6 +42,25 @@ button {
   touch-action: manipulation;
 }
 
+.sentinel-action,.sentinel-primary-action{
+  position:relative;
+  overflow:hidden;
+  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease,background-color .18s ease;
+}
+.sentinel-action:hover,.sentinel-primary-action:hover{filter:brightness(1.08);box-shadow:0 14px 30px rgba(5,150,170,.2)}
+.sentinel-action:active,.sentinel-primary-action:active{transform:translateY(1px) scale(.985)}
+.sentinel-primary-action::after{content:"";position:absolute;inset:0;transform:translateX(-120%);background:linear-gradient(105deg,transparent,rgba(255,255,255,.28),transparent);transition:transform .55s ease}
+.sentinel-primary-action:hover::after{transform:translateX(120%)}
+.sentinel-button-label{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:.55rem}
+.sentinel-button-label.is-busy::before{content:"";width:1rem;height:1rem;border:2px solid currentColor;border-right-color:transparent;border-radius:999px;animation:sentinel-spin .7s linear infinite}
+@keyframes sentinel-spin{to{transform:rotate(360deg)}}
+.sentinel-login-card{animation:sentinel-card-in .55s cubic-bezier(.2,.8,.2,1) both}
+.sentinel-login-shimmer{background:linear-gradient(90deg,#0ea5e9,#2dd4bf,#0ea5e9);background-size:200% 100%;animation:sentinel-shimmer 4s linear infinite}
+.sentinel-login-input{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+.sentinel-login-input:focus{transform:translateY(-1px)}
+@keyframes sentinel-card-in{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes sentinel-shimmer{to{background-position:200% 0}}
+
 #root {
   width: 100%;
   min-height: 100dvh;

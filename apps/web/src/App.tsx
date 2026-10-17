@@ -53,6 +53,9 @@ type VisitorDirectoryItem = {
   first_name?: string | null;
   purpose?: string | null;
   host_name?: string | null;
+  movement_count?: number;
+  visit_count?: number;
+  last_visit_at?: string | null;
 };
 type DeviceContext = { timezone: string; latitude?: number; longitude?: number };
 type ClockReference = { serverUtc: string; deviceTimezone: string; authority: string };
@@ -98,6 +101,30 @@ const getViewFromPath = (pathname: string): ViewMode => {
 
 const getPathForView = (view: ViewMode) => `${appBasePath}${viewPaths[view]}`;
 const logoAssetPath = `${import.meta.env.BASE_URL}icons/kcs-logo.jpg`;
+
+const loadReportLogo = (opacity = 1) => new Promise<string>((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || 512; canvas.height = image.naturalHeight || 512;
+    const context = canvas.getContext("2d");
+    if (!context) return reject(new Error("Logo renderer unavailable"));
+    context.globalAlpha = opacity; context.drawImage(image, 0, 0); resolve(canvas.toDataURL("image/png"));
+  };
+  image.onerror = () => reject(new Error("KCS logo unavailable"));
+  image.src = logoAssetPath;
+});
+
+export const drawKitchenStyleReport = async (pdf: jsPDF, title: string, documentId: string) => {
+  const [logo, watermark] = await Promise.all([loadReportLogo(), loadReportLogo(.055)]);
+  pdf.setFillColor(248, 252, 254); pdf.rect(0, 0, 210, 297, "F");
+  pdf.addImage(watermark, "PNG", 55, 88, 100, 100);
+  pdf.addImage(logo, "PNG", 15, 9, 27, 27);
+  pdf.setTextColor(6, 54, 95); pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.text("KINSHASA CHRISTIAN SCHOOL", 105, 13, { align: "center" }); pdf.setFontSize(18); pdf.text(title, 105, 23, { align: "center" }); pdf.setFontSize(7); pdf.setTextColor(138, 92, 0); pdf.text(documentId, 105, 30, { align: "center" });
+  pdf.setDrawColor(7, 95, 145); pdf.setLineWidth(1); pdf.line(15, 39, 195, 39);
+  pdf.setFillColor(225, 243, 247); pdf.roundedRect(15, 44, 180, 9, 2, 2, "F"); pdf.setTextColor(7, 93, 118); pdf.setFontSize(7); pdf.text("DOCUMENT ISSU DU REGISTRE AUDITÉ KCS SENTINEL", 105, 49.5, { align: "center" });
+  return 61;
+};
 
 const workflow = [
   "Choisir l'élève ou basculer le capteur en mode présence",
@@ -314,7 +341,6 @@ function App() {
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
   const [online, setOnline] = useState(window.navigator.onLine);
   const [kioskMode, setKioskMode] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unlockHolding, setUnlockHolding] = useState(false);
   const [gateState, setGateState] = useState<GateState>("idle");
   const [gateWorkspace, setGateWorkspace] = useState<GateWorkspace>("identity");
@@ -338,6 +364,9 @@ function App() {
   const [visitorForm, setVisitorForm] = useState({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
   const [movementBusy, setMovementBusy] = useState("");
   const [movementNotice, setMovementNotice] = useState("");
+  const [managerReportFrom, setManagerReportFrom] = useState(() => { const date = new Date(); date.setDate(1); return toDateKey(date); });
+  const [managerReportTo, setManagerReportTo] = useState(() => toDateKey(new Date()));
+  const [reportBusyPersonId, setReportBusyPersonId] = useState("");
   const [clockReference, setClockReference] = useState<ClockReference | null>(null);
   const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }));
   const unlockTimerRef = useRef<number | null>(null);
@@ -346,7 +375,6 @@ function App() {
 
   const navigateToView = (view: ViewMode, options?: { replace?: boolean }) => {
     setActiveView(view);
-    setMobileMenuOpen(false);
 
     const nextPath = getPathForView(view);
     if (window.location.pathname === nextPath) {
@@ -511,11 +539,57 @@ function App() {
       if (!response.ok) throw new Error(payload.message || "Pointage refusé");
       const verifiedTime = payload.occurredAt ? formatDateTimeValue(payload.occurredAt) : "heure serveur validée";
       setMovementNotice(`${direction === "ENTRY" ? "Entrée" : "Sortie"} confirmée pour ${label} · ${verifiedTime} · horloge serveur.`);
+      if (personType === "VISITOR") {
+        const visitorsResponse = await sentinelFetch(`${API_URL}/visitors`);
+        if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
+      }
     } catch (error) {
       setMovementNotice(error instanceof Error ? error.message : "Le pointage n'a pas pu être enregistré.");
     } finally {
       setMovementBusy("");
     }
+  };
+
+  const exportOrbitAttendancePdf = async (person: OrbitDirectoryPerson) => {
+    if (!managerReportFrom || !managerReportTo || managerReportFrom > managerReportTo) return;
+    setReportBusyPersonId(person.id);
+    setMovementNotice("");
+    try {
+      const response = await sentinelFetch(`${API_URL}/reports/${encodeURIComponent(person.id)}?from=${managerReportFrom}&to=${managerReportTo}`);
+      const report = await response.json() as any;
+      if (!response.ok) throw new Error(report.message || "Rapport indisponible");
+      const summary = report.custom || {};
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const documentId = `KCS-SEN-${Date.now().toString(36).toUpperCase()}-${person.id.slice(-6).toUpperCase()}`;
+      await drawKitchenStyleReport(pdf, "RAPPORT OFFICIEL DE FRÉQUENTATION", documentId);
+      pdf.setTextColor(3, 41, 66); pdf.setFontSize(16); pdf.text(person.fullName, 15, 66); pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${person.kind} · ${person.displayId || person.id}${person.className ? ` · ${person.className}` : ""}`, 15, 74); pdf.text(`Période : ${managerReportFrom} — ${managerReportTo}`, 15, 80);
+      autoTable(pdf, { startY: 88, head: [["Présences", "Ponctualité", "Arrivée moyenne", "Sortie moyenne", "Durée moyenne"]], body: [[String(summary.attendanceDays || 0), `${summary.punctualityRate || 0}%`, summary.averageArrival || "—", summary.averageDeparture || "—", `${Math.floor((summary.averagePresenceMinutes || 0) / 60)} h ${String((summary.averagePresenceMinutes || 0) % 60).padStart(2, "0")}`]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
+      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 92) + 8, head: [["Date", "Entrée", "Sortie", "Durée", "Statut", "Point"]], body: (summary.dayDetails || []).map((day: any) => [day.date, formatTimeValue(day.firstEntry), formatTimeValue(day.lastExit), day.durationMinutes == null ? "Incomplet" : `${Math.floor(day.durationMinutes / 60)}h${String(day.durationMinutes % 60).padStart(2, "0")}`, day.late ? "Retard" : "À l'heure", day.gate || "—"]), headStyles: { fillColor: [45, 212, 191], textColor: [3, 41, 66] }, styles: { fontSize: 8.5, cellPadding: 2.5 } });
+      pdf.setDrawColor(226, 169, 47); pdf.setLineWidth(.7); pdf.line(15, 277, 195, 277); pdf.setFontSize(8); pdf.setTextColor(90, 110, 125); pdf.text("Kinshasa Christian School · Macampagne, Ngaliema · Kinshasa, RDC", 15, 283); pdf.text(`${documentId} · ${report.timezone || "Africa/Kinshasa"}`, 195, 283, { align: "right" });
+      pdf.save(`sentinel-${person.fullName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${managerReportFrom}-${managerReportTo}.pdf`);
+    } catch (error) {
+      setMovementNotice(error instanceof Error ? error.message : "Le rapport n'a pas pu être généré.");
+    } finally {
+      setReportBusyPersonId("");
+    }
+  };
+
+  const exportVisitorReportPdf = async (visitor: VisitorDirectoryItem) => {
+    setReportBusyPersonId(visitor.id); setMovementNotice("");
+    try {
+      const response = await sentinelFetch(`${API_URL}/visitors/${encodeURIComponent(visitor.id)}/history`);
+      const report = await response.json() as any;
+      if (!response.ok) throw new Error(report.message || "Historique visiteur indisponible");
+      const movements = (report.movements || []).filter((movement: any) => { const day = String(movement.occurred_at || "").slice(0, 10); return day >= managerReportFrom && day <= managerReportTo; });
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const documentId = `KCS-SEN-VIS-${Date.now().toString(36).toUpperCase()}-${visitor.id.slice(-6).toUpperCase()}`;
+      await drawKitchenStyleReport(pdf, "REGISTRE OFFICIEL DES VISITES", documentId);
+      pdf.setTextColor(3, 41, 66); pdf.setFontSize(16); pdf.text(visitor.full_name, 15, 66); pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${visitor.purpose || "Visiteur"}${visitor.host_name ? ` · Personne visitée : ${visitor.host_name}` : ""}`, 15, 74); pdf.text(`Période : ${managerReportFrom} — ${managerReportTo} · ${movements.filter((row: any) => row.direction === "ENTRY").length} visite(s)`, 15, 80);
+      autoTable(pdf, { startY: 89, head: [["Date et heure", "Mouvement", "Portail", "Source", "Fuseau observé"]], body: movements.map((row: any) => [formatDateTimeValue(row.occurred_at), row.direction === "ENTRY" ? "Entrée" : "Sortie", row.gate || "—", row.source || "—", row.observed_timezone || "—"]), headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 8.5, cellPadding: 2.7 } });
+      pdf.setDrawColor(226, 169, 47); pdf.setLineWidth(.7); pdf.line(15, 277, 195, 277); pdf.setFontSize(8); pdf.setTextColor(83, 111, 129); pdf.text("Kinshasa Christian School · Macampagne, Ngaliema · Kinshasa, RDC", 15, 283); pdf.text(`KCS Orbit Ecosystem · KCS Sentinel · ${documentId}`, 195, 283, { align: "right" });
+      pdf.save(`sentinel-visiteur-${visitor.full_name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${managerReportFrom}-${managerReportTo}.pdf`);
+    } catch (error) { setMovementNotice(error instanceof Error ? error.message : "Le rapport visiteur n'a pas pu être généré."); }
+    finally { setReportBusyPersonId(""); }
   };
 
   const createVisitor = async () => {
@@ -525,14 +599,14 @@ function App() {
       const response = await sentinelFetch(`${API_URL}/visitors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(visitorForm)
+        body: JSON.stringify({ ...visitorForm, gate: ENTRY_POINT, deviceContext })
       });
-      const payload = await response.json() as { id?: string; fullName?: string; message?: string };
+      const payload = await response.json() as { id?: string; fullName?: string; message?: string; enteredAt?: string };
       if (!response.ok || !payload.id) throw new Error(payload.message || "Enregistrement du visiteur refusé");
-      const visitor: VisitorDirectoryItem = { id: payload.id, full_name: payload.fullName || [visitorForm.lastName, visitorForm.middleName, visitorForm.firstName].filter(Boolean).join(" "), purpose: visitorForm.purpose, host_name: visitorForm.hostName };
+      const visitor: VisitorDirectoryItem = { id: payload.id, full_name: payload.fullName || [visitorForm.lastName, visitorForm.middleName, visitorForm.firstName].filter(Boolean).join(" "), purpose: visitorForm.purpose, host_name: visitorForm.hostName, movement_count: 1, visit_count: 1, last_visit_at: payload.enteredAt };
       setVisitors((current) => [visitor, ...current]);
       setVisitorForm({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
-      setMovementNotice(`${visitor.full_name} est enregistré dans le registre visiteurs et peut maintenant être pointé.`);
+      setMovementNotice(`${visitor.full_name} est enregistré · entrée officielle liée à ${payload.enteredAt ? formatDateTimeValue(payload.enteredAt) : "l'heure serveur"}. La sortie restera traçable sur la même fiche.`);
     } catch (error) {
       setMovementNotice(error instanceof Error ? error.message : "Le visiteur n'a pas pu être enregistré.");
     } finally {
@@ -1635,76 +1709,24 @@ function App() {
     }
 
     return (
-      <>
-        <button
-          type="button"
-          aria-label="Fermer le menu"
-          onClick={() => setMobileMenuOpen(false)}
-          className={`sentinel-mobile-scrim fixed inset-0 z-40 bg-slate-950/65 backdrop-blur-sm transition-opacity md:hidden ${mobileMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
-        />
-        <nav
-          aria-label="Navigation principale"
-          className={`sentinel-mobile-nav fixed inset-y-0 left-0 z-50 flex w-[min(84vw,320px)] flex-col border-r border-white/10 bg-slate-950/95 p-4 shadow-[20px_0_60px_rgba(2,6,23,0.55)] backdrop-blur-xl transition-transform duration-300 md:hidden ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}
-        >
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <SchoolLogo compact />
-            <button
-              type="button"
-              aria-label="Fermer le menu"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-xl text-white"
-            >
-              ×
-            </button>
-          </div>
-          <div className="mt-5 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain">
-          {navigationItems.map((item) => {
-            const isActive = activeView === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => navigateToView(item.key)}
-                className={`sentinel-nav-item flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition ${isActive ? `${item.activeClass} border-transparent` : "border-white/10 bg-white/[0.04] text-slate-200"}`}
-              >
-                <div className="min-w-0">
-                  <div className={`text-[9px] uppercase tracking-[0.18em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{item.eyebrow}</div>
-                  <div className="mt-1 break-words text-sm font-semibold leading-tight">{item.label}</div>
-                </div>
-                <span aria-hidden="true" className="shrink-0 text-lg">›</span>
-              </button>
-            );
-          })}
-          </div>
-          <div className="mt-4 border-t border-white/10 pt-4 text-xs leading-5 text-slate-400">
-            KCS Sentinel · Contrôle sécurisé des entrées et sorties
-          </div>
-        </nav>
-      </>
+      <nav aria-label="Navigation principale" className="sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid grid-cols-5 gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden">
+        {navigationItems.map((item) => {
+          const isActive = activeView === item.key;
+          const icon = ({ gate: "⌁", dashboard: "⌂", liveFeed: "◉", disciplinary: "▤", attendance: "◷" } as const)[item.key];
+          return <button key={item.key} type="button" aria-current={isActive ? "page" : undefined} onClick={() => navigateToView(item.key)} className={`flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition active:scale-95 ${isActive ? item.activeClass : "text-slate-300 hover:bg-white/5"}`}><span aria-hidden="true" className="text-base leading-none">{icon}</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{item.shortLabel}</span></button>;
+        })}
+      </nav>
     );
   };
 
   return (
     <div className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-8"}`}>
+      <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-24 md:pb-8"}`}>
         <header className="sentinel-command-header sticky top-0 z-30 w-full overflow-hidden border-b border-white/10 bg-white/5 px-3 py-3 shadow-glow backdrop-blur-xl sm:px-5 lg:px-6">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex flex-col gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                {!kioskMode && (
-                  <button
-                    type="button"
-                    aria-label="Ouvrir le menu"
-                    aria-expanded={mobileMenuOpen}
-                    onClick={() => setMobileMenuOpen(true)}
-                    className="flex h-11 w-11 shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 md:hidden"
-                  >
-                    <span className="h-0.5 w-5 rounded-full bg-white" />
-                    <span className="h-0.5 w-5 rounded-full bg-white" />
-                    <span className="h-0.5 w-5 rounded-full bg-white" />
-                  </button>
-                )}
                 <SchoolLogo />
               </div>
               <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.24em] text-slate-300">
@@ -1814,6 +1836,7 @@ function App() {
                 <div className="mt-5 grid gap-4 xl:grid-cols-2">
                   <section className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                     <div className="text-xs uppercase tracking-[0.22em] text-slate-400">Entités KCS · registre Orbit</div>
+                    <div className="mt-3 grid gap-2 rounded-2xl border border-cyan/15 bg-cyan/5 p-3 sm:grid-cols-2"><label className="text-[11px] font-semibold text-slate-300">Rapport du<input type="date" value={managerReportFrom} onChange={(event) => setManagerReportFrom(event.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-white" /></label><label className="text-[11px] font-semibold text-slate-300">Au<input type="date" value={managerReportTo} onChange={(event) => setManagerReportTo(event.target.value)} className="mt-1 w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-white" /></label><p className="text-[11px] leading-5 text-slate-400 sm:col-span-2">Ces dates s’appliquent au bouton Rapport PDF de chaque identité Orbit.</p></div>
                     <label className="mt-3 block text-sm font-medium text-white" htmlFor="orbit-person-search">Nom, e-mail, code ou identifiant Orbit</label>
                     <input id="orbit-person-search" value={orbitSearch} onChange={(event) => setOrbitSearch(event.target.value)} placeholder="Rechercher une entité KCS…" className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none" />
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -1828,7 +1851,8 @@ function App() {
                               <div className="break-words font-semibold text-white">{person.fullName}</div>
                               <div className="mt-1 break-words text-xs text-slate-400">{person.kind} · {person.displayId || person.id}{person.className ? ` · ${person.className}` : ""}</div>
                             </div>
-                            <div className="flex shrink-0 gap-2">
+                            <div className="flex shrink-0 flex-wrap gap-2">
+                              <button type="button" disabled={Boolean(reportBusyPersonId) || managerReportFrom > managerReportTo} onClick={() => void exportOrbitAttendancePdf(person)} className="rounded-xl border border-teal-300/30 bg-teal-300/10 px-3 py-2 text-xs font-semibold text-teal-100 disabled:opacity-50">{reportBusyPersonId === person.id ? "Génération…" : "Rapport PDF"}</button>
                               {(["ENTRY", "EXIT"] as const).map((direction) => {
                                 const key = `ORBIT:${person.id}:${direction}`;
                                 return <button key={direction} type="button" disabled={Boolean(movementBusy)} onClick={() => void registerMovement(person.id, "ORBIT", direction, person.fullName)} className={`rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50 ${direction === "ENTRY" ? "bg-cyan text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}>{movementBusy === key ? "Traitement…" : direction === "ENTRY" ? "Entrée" : "Sortie"}</button>;
@@ -1857,8 +1881,9 @@ function App() {
                       {visibleVisitors.map((visitor) => (
                         <article key={visitor.id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-3">
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="min-w-0"><div className="break-words font-semibold text-white">{visitor.full_name}</div><div className="mt-1 break-words text-xs text-slate-400">{visitor.purpose || "Visiteur"}{visitor.host_name ? ` · visite ${visitor.host_name}` : ""}</div></div>
+                            <div className="min-w-0"><div className="break-words font-semibold text-white">{visitor.full_name}</div><div className="mt-1 break-words text-xs text-slate-400">{visitor.purpose || "Visiteur"}{visitor.host_name ? ` · visite ${visitor.host_name}` : ""}</div><div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold"><span className="rounded-full bg-cyan/10 px-2 py-1 text-cyan">{visitor.visit_count || 0} visite(s) liée(s)</span>{visitor.last_visit_at && <span className="rounded-full bg-white/5 px-2 py-1 text-slate-300">Dernière : {formatDateTimeValue(visitor.last_visit_at)}</span>}</div></div>
                             <div className="flex shrink-0 gap-2">
+                              <button type="button" disabled={Boolean(reportBusyPersonId) || managerReportFrom > managerReportTo} onClick={() => void exportVisitorReportPdf(visitor)} className="rounded-xl border border-teal-300/30 bg-teal-300/10 px-3 py-2 text-xs font-semibold text-teal-100 disabled:opacity-50">{reportBusyPersonId === visitor.id ? "Génération…" : "Rapport"}</button>
                               {(["ENTRY", "EXIT"] as const).map((direction) => {
                                 const key = `VISITOR:${visitor.id}:${direction}`;
                                 return <button key={direction} type="button" disabled={Boolean(movementBusy)} onClick={() => void registerMovement(visitor.id, "VISITOR", direction, visitor.full_name)} className={`rounded-xl px-3 py-2 text-xs font-semibold disabled:opacity-50 ${direction === "ENTRY" ? "bg-cyan text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}>{movementBusy === key ? "Traitement…" : direction === "ENTRY" ? "Entrée" : "Sortie"}</button>;
