@@ -1,9 +1,10 @@
-const CACHE_NAME = "kcs-sentinel-shell-v6";
+const CACHE_NAME = "kcs-sentinel-shell-v7";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [
   toScopedPath("./"),
   toScopedPath("./manifest.webmanifest"),
+  toScopedPath("./images/sentinel-secure-campus-hero.png"),
   toScopedPath("./icons/kcs-logo.jpg"),
   toScopedPath("./icons/favicon-16.png"),
   toScopedPath("./icons/favicon-32.png"),

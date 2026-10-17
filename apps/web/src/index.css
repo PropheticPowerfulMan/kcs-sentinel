@@ -61,6 +61,27 @@ button {
 @keyframes sentinel-card-in{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes sentinel-shimmer{to{background-position:200% 0}}
 
+.sentinel-login-page{
+  background-image:
+    linear-gradient(105deg,rgba(2,25,43,.26),rgba(2,25,43,.54)),
+    url('/sentinel/images/sentinel-secure-campus-hero.png');
+  background-position:center;
+  background-size:cover;
+}
+.sentinel-login-visual{
+  background:linear-gradient(100deg,rgba(2,26,45,.34),rgba(2,26,45,.08));
+  text-shadow:0 2px 22px rgba(0,16,30,.8);
+}
+.sentinel-login-form-panel{
+  background:linear-gradient(145deg,rgba(226,243,249,.88),rgba(205,232,242,.94));
+  backdrop-filter:blur(4px);
+}
+@media(max-width:1023px){
+  .sentinel-login-page{background-position:42% center}
+  .sentinel-login-form-panel{background:linear-gradient(180deg,rgba(3,31,52,.28),rgba(214,238,247,.91) 28%,rgba(224,243,249,.96))}
+  .sentinel-login-card{max-height:calc(100dvh - 1.5rem);overflow:auto}
+}
+
 #root {
   width: 100%;
   min-height: 100dvh;

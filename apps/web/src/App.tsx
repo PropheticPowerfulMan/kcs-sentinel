@@ -59,6 +59,9 @@ type VisitorDirectoryItem = {
 };
 type DeviceContext = { timezone: string; latitude?: number; longitude?: number };
 type ClockReference = { serverUtc: string; deviceTimezone: string; authority: string };
+const SCHOOL_TIME_ZONE = "Africa/Kinshasa";
+type OperationsPeriod = "daily" | "weekly" | "monthly" | "yearly";
+type OperationsReport = { from: string; to: string; timezone: string; generatedAt: string; summary: { movements: number; entries: number; exits: number; orbitMovements: number; visitorMovements: number; uniquePeople: number; presentEmployees: number }; employeePresence: Array<{ person_id: string; fullName: string; kind: string; displayId?: string | null; jobTitle?: string | null; firstEntry?: string | null; lastExit?: string | null; latestDirection: "ENTRY" | "EXIT" }>; movements: Array<{ id: string; fullName: string; kind: string; person_type: "ORBIT" | "VISITOR"; direction: "ENTRY" | "EXIT"; occurred_at: string; gate: string; source: string }> };
 
 const statCards = [
   { key: "present", label: "Present Today", tone: "from-cyan/30 to-cyan/5" },
@@ -117,12 +120,13 @@ const loadReportLogo = (opacity = 1) => new Promise<string>((resolve, reject) =>
 
 export const drawKitchenStyleReport = async (pdf: jsPDF, title: string, documentId: string) => {
   const [logo, watermark] = await Promise.all([loadReportLogo(), loadReportLogo(.055)]);
-  pdf.setFillColor(248, 252, 254); pdf.rect(0, 0, 210, 297, "F");
-  pdf.addImage(watermark, "PNG", 55, 88, 100, 100);
+  const pageWidth = pdf.internal.pageSize.getWidth(); const pageHeight = pdf.internal.pageSize.getHeight(); const center = pageWidth / 2;
+  pdf.setFillColor(248, 252, 254); pdf.rect(0, 0, pageWidth, pageHeight, "F");
+  pdf.addImage(watermark, "PNG", center - 50, pageHeight / 2 - 50, 100, 100);
   pdf.addImage(logo, "PNG", 15, 9, 27, 27);
-  pdf.setTextColor(6, 54, 95); pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.text("KINSHASA CHRISTIAN SCHOOL", 105, 13, { align: "center" }); pdf.setFontSize(18); pdf.text(title, 105, 23, { align: "center" }); pdf.setFontSize(7); pdf.setTextColor(138, 92, 0); pdf.text(documentId, 105, 30, { align: "center" });
-  pdf.setDrawColor(7, 95, 145); pdf.setLineWidth(1); pdf.line(15, 39, 195, 39);
-  pdf.setFillColor(225, 243, 247); pdf.roundedRect(15, 44, 180, 9, 2, 2, "F"); pdf.setTextColor(7, 93, 118); pdf.setFontSize(7); pdf.text("DOCUMENT ISSU DU REGISTRE AUDITÉ KCS SENTINEL", 105, 49.5, { align: "center" });
+  pdf.setTextColor(6, 54, 95); pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.text("KINSHASA CHRISTIAN SCHOOL", center, 13, { align: "center" }); pdf.setFontSize(18); pdf.text(title, center, 23, { align: "center" }); pdf.setFontSize(7); pdf.setTextColor(138, 92, 0); pdf.text(documentId, center, 30, { align: "center" });
+  pdf.setDrawColor(7, 95, 145); pdf.setLineWidth(1); pdf.line(15, 39, pageWidth - 15, 39);
+  pdf.setFillColor(225, 243, 247); pdf.roundedRect(15, 44, pageWidth - 30, 9, 2, 2, "F"); pdf.setTextColor(7, 93, 118); pdf.setFontSize(7); pdf.text("DOCUMENT ISSU DU REGISTRE AUDITÉ KCS SENTINEL", center, 49.5, { align: "center" });
   return 61;
 };
 
@@ -203,6 +207,7 @@ const getSensorPrompt = (mode: SensorMode, gateState: GateState) => {
 
 const formatDateValue = (value: string) =>
   new Date(value).toLocaleDateString("fr-FR", {
+    timeZone: SCHOOL_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric"
@@ -222,11 +227,13 @@ const formatTimeValue = (value?: string | null) =>
     ? new Date(value).toLocaleTimeString("fr-FR", {
         hour: "2-digit",
         minute: "2-digit"
+      ,timeZone: SCHOOL_TIME_ZONE
       })
     : "--:--";
 
 const formatDateTimeValue = (value: string) =>
   new Date(value).toLocaleString("fr-FR", {
+    timeZone: SCHOOL_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -239,6 +246,25 @@ const toDateKey = (value: Date) => {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const schoolDateKey = (value = new Date()) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: SCHOOL_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+
+const shiftDateKey = (dateKey: string, days: number) => {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const operationsRange = (period: OperationsPeriod) => {
+  const to = schoolDateKey();
+  if (period === "daily") return { from: to, to };
+  if (period === "weekly") return { from: shiftDateKey(to, -6), to };
+  if (period === "monthly") return { from: `${to.slice(0, 8)}01`, to };
+  return { from: `${to.slice(0, 4)}-01-01`, to };
 };
 
 const startOfWeek = (value: Date) => {
@@ -367,6 +393,9 @@ function App() {
   const [managerReportFrom, setManagerReportFrom] = useState(() => { const date = new Date(); date.setDate(1); return toDateKey(date); });
   const [managerReportTo, setManagerReportTo] = useState(() => toDateKey(new Date()));
   const [reportBusyPersonId, setReportBusyPersonId] = useState("");
+  const [operationsPeriod, setOperationsPeriod] = useState<OperationsPeriod>("daily");
+  const [operationsReport, setOperationsReport] = useState<OperationsReport | null>(null);
+  const [operationsReportBusy, setOperationsReportBusy] = useState(false);
   const [clockReference, setClockReference] = useState<ClockReference | null>(null);
   const [deviceContext, setDeviceContext] = useState<DeviceContext>(() => ({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }));
   const unlockTimerRef = useRef<number | null>(null);
@@ -525,6 +554,38 @@ function App() {
     return visitors.filter((visitor) => visitor.full_name.toLocaleLowerCase("fr").includes(query)).slice(0, 12);
   }, [visitorSearch, visitors]);
 
+  useEffect(() => {
+    let active = true;
+    const range = operationsRange(operationsPeriod);
+    const load = async () => {
+      try {
+        const response = await sentinelFetch(`${API_URL}/reports/operations?from=${range.from}&to=${range.to}`);
+        if (!response.ok) throw new Error("Operational report unavailable");
+        const payload = await response.json() as OperationsReport;
+        if (active) setOperationsReport(payload);
+      } catch {
+        if (active) setMovementNotice("Le suivi opérationnel sera resynchronisé automatiquement.");
+      }
+    };
+    void load();
+    const interval = window.setInterval(() => void load(), 15000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [operationsPeriod]);
+
+  const exportOperationsPdf = async () => {
+    if (!operationsReport) return;
+    setOperationsReportBusy(true);
+    try {
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const documentId = `KCS-SEN-FLOW-${Date.now().toString(36).toUpperCase()}`;
+      await drawKitchenStyleReport(pdf, "RAPPORT OFFICIEL DES FLUX SENTINEL", documentId);
+      pdf.setTextColor(3, 41, 66); pdf.setFontSize(10); pdf.text(`Période : ${operationsReport.from} — ${operationsReport.to} · Fuseau officiel : ${operationsReport.timezone}`, 15, 65);
+      autoTable(pdf, { startY: 72, head: [["Mouvements", "Entrées", "Sorties", "Identités", "Orbit", "Visiteurs"]], body: [[String(operationsReport.summary.movements), String(operationsReport.summary.entries), String(operationsReport.summary.exits), String(operationsReport.summary.uniquePeople), String(operationsReport.summary.orbitMovements), String(operationsReport.summary.visitorMovements)]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
+      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 88) + 7, head: [["Date / heure", "Identité", "Catégorie", "Mouvement", "Portail", "Source"]], body: operationsReport.movements.map((row) => [formatDateTimeValue(row.occurred_at), row.fullName, row.kind, row.direction === "ENTRY" ? "Entrée" : "Sortie", row.gate || "—", row.source || "—"]), headStyles: { fillColor: [7, 90, 123] }, alternateRowStyles: { fillColor: [239, 248, 252] }, styles: { fontSize: 7.5, cellPadding: 2.1 }, margin: { top: 18, bottom: 18 } });
+      pdf.save(`KCS-Sentinel-flux-${operationsReport.from}-${operationsReport.to}.pdf`);
+    } finally { setOperationsReportBusy(false); }
+  };
+
   const registerMovement = async (personId: string, personType: "ORBIT" | "VISITOR", direction: "ENTRY" | "EXIT", label: string) => {
     const operationKey = `${personType}:${personId}:${direction}`;
     setMovementBusy(operationKey);
@@ -539,6 +600,9 @@ function App() {
       if (!response.ok) throw new Error(payload.message || "Pointage refusé");
       const verifiedTime = payload.occurredAt ? formatDateTimeValue(payload.occurredAt) : "heure serveur validée";
       setMovementNotice(`${direction === "ENTRY" ? "Entrée" : "Sortie"} confirmée pour ${label} · ${verifiedTime} · horloge serveur.`);
+      const range = operationsRange(operationsPeriod);
+      const operationsResponse = await sentinelFetch(`${API_URL}/reports/operations?from=${range.from}&to=${range.to}`);
+      if (operationsResponse.ok) setOperationsReport(await operationsResponse.json() as OperationsReport);
       if (personType === "VISITOR") {
         const visitorsResponse = await sentinelFetch(`${API_URL}/visitors`);
         if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
@@ -1729,19 +1793,13 @@ function App() {
               <div className="flex min-w-0 items-center gap-3">
                 <SchoolLogo />
               </div>
-              <div className="flex flex-wrap gap-3 text-xs uppercase tracking-[0.24em] text-slate-300">
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{online ? "Online sync ready" : "Offline cache active"}</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{isStandalone ? "Installed app" : "Browser mode"}</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{kioskMode ? "Kiosk locked" : "Kiosk standby"}</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2">{overview.storageMode ?? "Live operations"}</span>
-              </div>
-              <div className="inline-flex w-fit items-center gap-3 rounded-full border border-cyan/30 bg-cyan/10 px-4 py-2 text-sm text-cyan">
+              <div className="sentinel-compact-status inline-flex w-fit items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">
                 <span className="h-2 w-2 rounded-full bg-signal shadow-[0_0_12px_rgba(28,231,176,0.9)]" />
-                {status}
+                {online ? status : "Mode résilient hors connexion"}
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 max-sm:flex-col max-sm:items-stretch">
+            <div className="sentinel-header-actions hidden flex-wrap gap-3 md:flex">
               {!kioskMode && (
                 <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
                   Page active : <span className="font-semibold text-white">{navigationItems.find((item) => item.key === activeView)?.label ?? "Dashboard"}</span>
@@ -2104,7 +2162,13 @@ function App() {
                 </div>
               </div>
 
-              {gateWorkspace === "operations" ? renderAttendanceRegister() : null}
+              {gateWorkspace === "operations" ? <>
+                <section className="mt-6 rounded-[28px] border border-cyan/20 bg-slate-950/45 p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><div className="text-xs uppercase tracking-[0.25em] text-cyan">Présence du personnel et rapports officiels</div><h2 className="mt-2 text-2xl font-semibold text-white">Employés présents · entrées et sorties</h2><p className="mt-2 text-sm text-slate-300">Le tableau se met à jour automatiquement depuis l’horloge serveur de Kinshasa.</p></div><div className="flex flex-wrap gap-2">{([['daily','Journalier'],['weekly','Hebdomadaire'],['monthly','Mensuel'],['yearly','Annuel']] as const).map(([period,label])=><button key={period} type="button" onClick={()=>setOperationsPeriod(period)} className={`rounded-xl px-3 py-2 text-xs font-bold ${operationsPeriod===period?'bg-cyan text-slate-950':'border border-white/10 bg-white/5 text-white'}`}>{label}</button>)}<button type="button" disabled={!operationsReport||operationsReportBusy} onClick={()=>void exportOperationsPdf()} className="sentinel-primary-action rounded-xl bg-gradient-to-r from-teal-300 to-cyan-300 px-4 py-2 text-xs font-black text-[#032942] disabled:opacity-50"><span className={operationsReportBusy?'sentinel-button-label is-busy':'sentinel-button-label'}>{operationsReportBusy?'Génération…':'Rapport PDF officiel'}</span></button></div></div>
+                  {operationsReport && <><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4"><div className="rounded-xl bg-white/5 p-3"><small className="text-slate-400">Présents maintenant</small><strong className="mt-1 block text-xl text-signal">{operationsReport.summary.presentEmployees}</strong></div><div className="rounded-xl bg-white/5 p-3"><small className="text-slate-400">Entrées</small><strong className="mt-1 block text-xl text-white">{operationsReport.summary.entries}</strong></div><div className="rounded-xl bg-white/5 p-3"><small className="text-slate-400">Sorties</small><strong className="mt-1 block text-xl text-white">{operationsReport.summary.exits}</strong></div><div className="rounded-xl bg-white/5 p-3"><small className="text-slate-400">Visiteurs</small><strong className="mt-1 block text-xl text-white">{operationsReport.summary.visitorMovements}</strong></div></div><div className="mt-4 overflow-x-auto rounded-2xl border border-white/10"><table className="w-full min-w-[650px] text-left text-sm"><thead className="bg-[#063c65] text-xs uppercase text-cyan-100"><tr><th className="p-3">Employé</th><th className="p-3">Fonction</th><th className="p-3">Entrée</th><th className="p-3">Sortie</th><th className="p-3">État</th></tr></thead><tbody>{operationsReport.employeePresence.map((row)=><tr key={row.person_id} className="border-t border-white/10"><td className="p-3 font-bold text-white">{row.fullName}<small className="block text-slate-400">{row.displayId||''}</small></td><td className="p-3 text-slate-300">{row.jobTitle||row.kind}</td><td className="p-3">{row.firstEntry?formatTimeValue(row.firstEntry):'—'}</td><td className="p-3">{row.lastExit?formatTimeValue(row.lastExit):'—'}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.latestDirection==='ENTRY'?'bg-signal/15 text-signal':'bg-white/10 text-slate-300'}`}>{row.latestDirection==='ENTRY'?'Présent':'Sorti'}</span></td></tr>)}{!operationsReport.employeePresence.length&&<tr><td colSpan={5} className="p-6 text-center text-slate-400">Aucun mouvement du personnel enregistré aujourd’hui.</td></tr>}</tbody></table></div></>}
+                </section>
+                {renderAttendanceRegister()}
+              </> : null}
             </div>
 
             <div className={`${gateWorkspace === "operations" ? "grid" : "hidden"} gap-6`}>
