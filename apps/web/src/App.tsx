@@ -43,6 +43,8 @@ type OrbitDirectoryPerson = {
   email?: string | null;
   className?: string | null;
   jobTitle?: string | null;
+  preferredLanguage?: string | null;
+  language?: string | null;
   kind: "STUDENT" | "TEACHER" | "STAFF" | "PARENT";
 };
 type VisitorDirectoryItem = {
@@ -431,6 +433,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [visitorForm, setVisitorForm] = useState({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
   const [movementBusy, setMovementBusy] = useState("");
   const [movementNotice, setMovementNotice] = useState("");
+  const [operationDialog, setOperationDialog] = useState<{ kind: "success" | "error"; title: string; message: string } | null>(null);
   const [managerReportFrom, setManagerReportFrom] = useState(() => { const date = new Date(); date.setDate(1); return toDateKey(date); });
   const [managerReportTo, setManagerReportTo] = useState(() => toDateKey(new Date()));
   const [reportBusyPersonId, setReportBusyPersonId] = useState("");
@@ -675,10 +678,10 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     try {
       const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const documentId = `KCS-SEN-FLOW-${Date.now().toString(36).toUpperCase()}`;
-      await drawKitchenStyleReport(pdf, "RAPPORT OFFICIEL DES FLUX SENTINEL", documentId);
-      pdf.setTextColor(3, 41, 66); pdf.setFontSize(10); pdf.text(`Période : ${operationsReport.from} — ${operationsReport.to} · Fuseau officiel : ${operationsReport.timezone}`, 15, 65);
-      autoTable(pdf, { startY: 72, head: [["Mouvements", "Entrées", "Sorties", "Identités", "Orbit", "Visiteurs"]], body: [[String(operationsReport.summary.movements), String(operationsReport.summary.entries), String(operationsReport.summary.exits), String(operationsReport.summary.uniquePeople), String(operationsReport.summary.orbitMovements), String(operationsReport.summary.visitorMovements)]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
-      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 88) + 7, head: [["Date / heure", "Identité", "Catégorie", "Mouvement", "Portail", "Source"]], body: operationsReport.movements.map((row) => [formatDateTimeValue(row.occurred_at), row.fullName, row.kind, row.direction === "ENTRY" ? "Entrée" : "Sortie", row.gate || "—", row.source || "—"]), headStyles: { fillColor: [7, 90, 123] }, alternateRowStyles: { fillColor: [239, 248, 252] }, styles: { fontSize: 7.5, cellPadding: 2.1 }, margin: { top: 18, bottom: 18 } });
+      await drawKitchenStyleReport(pdf, tr("RAPPORT OFFICIEL DES FLUX SENTINEL", "OFFICIAL SENTINEL FLOW REPORT"), documentId);
+      pdf.setTextColor(3, 41, 66); pdf.setFontSize(10); pdf.text(`${tr('Période','Period')} : ${operationsReport.from} — ${operationsReport.to} · ${tr('Fuseau officiel','Official timezone')} : ${operationsReport.timezone}`, 15, 65);
+      autoTable(pdf, { startY: 72, head: [[tr("Mouvements","Movements"), tr("Entrées","Entries"), tr("Sorties","Exits"), tr("Identités","Identities"), "Orbit", tr("Visiteurs","Visitors")]], body: [[String(operationsReport.summary.movements), String(operationsReport.summary.entries), String(operationsReport.summary.exits), String(operationsReport.summary.uniquePeople), String(operationsReport.summary.orbitMovements), String(operationsReport.summary.visitorMovements)]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
+      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 88) + 7, head: [[tr("Date / heure","Date / time"), tr("Identité","Identity"), tr("Catégorie","Category"), tr("Mouvement","Movement"), tr("Portail","Gate"), tr("Source","Source")]], body: operationsReport.movements.map((row) => [formatDateTimeValue(row.occurred_at), row.fullName, row.kind, row.direction === "ENTRY" ? tr("Entrée","Entry") : tr("Sortie","Exit"), row.gate || "—", row.source || "—"]), headStyles: { fillColor: [7, 90, 123] }, alternateRowStyles: { fillColor: [239, 248, 252] }, styles: { fontSize: 7.5, cellPadding: 2.1 }, margin: { top: 18, bottom: 18 } });
       pdf.save(`KCS-Sentinel-flux-${operationsReport.from}-${operationsReport.to}.pdf`);
     } finally { setOperationsReportBusy(false); }
   };
@@ -696,7 +699,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       const payload = await response.json() as { occurredAt?: string; message?: string };
       if (!response.ok) throw new Error(payload.message || "Pointage refusé");
       const verifiedTime = payload.occurredAt ? formatDateTimeValue(payload.occurredAt) : "heure serveur validée";
-      setMovementNotice(`${direction === "ENTRY" ? "Entrée" : "Sortie"} confirmée pour ${label} · ${verifiedTime} · horloge serveur.`);
+      setOperationDialog({ kind: "success", title: direction === "ENTRY" ? tr("Entrée enregistrée", "Entry recorded") : tr("Sortie enregistrée", "Exit recorded"), message: `${label} · ${verifiedTime} · ${tr("horloge officielle KCS", "official KCS clock")}.` });
       const range = operationsRange(operationsPeriod);
       const operationsResponse = await sentinelFetch(`${API_URL}/reports/operations?from=${range.from}&to=${range.to}`);
       if (operationsResponse.ok) setOperationsReport(await operationsResponse.json() as OperationsReport);
@@ -705,7 +708,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
         if (visitorsResponse.ok) setVisitors(((await visitorsResponse.json()) as { visitors: VisitorDirectoryItem[] }).visitors ?? []);
       }
     } catch (error) {
-      setMovementNotice(error instanceof Error ? error.message : "Le pointage n'a pas pu être enregistré.");
+      setOperationDialog({ kind: "error", title: tr("Opération non enregistrée", "Operation not recorded"), message: error instanceof Error ? error.message : tr("Le pointage n'a pas pu être enregistré.", "The movement could not be recorded.") });
     } finally {
       setMovementBusy("");
     }
@@ -716,16 +719,18 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     setReportBusyPersonId(person.id);
     setMovementNotice("");
     try {
+      const documentLanguage = String(person.preferredLanguage || person.language || language).toLowerCase().startsWith('en') ? 'en' : 'fr';
+      const pTr = (fr: string, en: string) => documentLanguage === 'fr' ? fr : en;
       const response = await sentinelFetch(`${API_URL}/reports/${encodeURIComponent(person.id)}?from=${managerReportFrom}&to=${managerReportTo}`);
       const report = await response.json() as any;
       if (!response.ok) throw new Error(report.message || "Rapport indisponible");
       const summary = report.custom || {};
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const documentId = `KCS-SEN-${Date.now().toString(36).toUpperCase()}-${person.id.slice(-6).toUpperCase()}`;
-      await drawKitchenStyleReport(pdf, "RAPPORT OFFICIEL DE FRÉQUENTATION", documentId);
-      pdf.setTextColor(3, 41, 66); pdf.setFontSize(16); pdf.text(person.fullName, 15, 66); pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${person.kind} · ${person.displayId || person.id}${person.className ? ` · ${person.className}` : ""}`, 15, 74); pdf.text(`Période : ${managerReportFrom} — ${managerReportTo}`, 15, 80);
-      autoTable(pdf, { startY: 88, head: [["Présences", "Ponctualité", "Arrivée moyenne", "Sortie moyenne", "Durée moyenne"]], body: [[String(summary.attendanceDays || 0), `${summary.punctualityRate || 0}%`, summary.averageArrival || "—", summary.averageDeparture || "—", `${Math.floor((summary.averagePresenceMinutes || 0) / 60)} h ${String((summary.averagePresenceMinutes || 0) % 60).padStart(2, "0")}`]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
-      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 92) + 8, head: [["Date", "Entrée", "Sortie", "Durée", "Statut", "Point"]], body: (summary.dayDetails || []).map((day: any) => [day.date, formatTimeValue(day.firstEntry), formatTimeValue(day.lastExit), day.durationMinutes == null ? "Incomplet" : `${Math.floor(day.durationMinutes / 60)}h${String(day.durationMinutes % 60).padStart(2, "0")}`, day.late ? "Retard" : "À l'heure", day.gate || "—"]), headStyles: { fillColor: [45, 212, 191], textColor: [3, 41, 66] }, styles: { fontSize: 8.5, cellPadding: 2.5 } });
+      await drawKitchenStyleReport(pdf, pTr("RAPPORT OFFICIEL DE FRÉQUENTATION", "OFFICIAL ATTENDANCE REPORT"), documentId);
+      pdf.setTextColor(3, 41, 66); pdf.setFontSize(16); pdf.text(person.fullName, 15, 66); pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text(`${person.kind} · ${person.displayId || person.id}${person.className ? ` · ${person.className}` : ""}`, 15, 74); pdf.text(`${pTr('Période','Period')} : ${managerReportFrom} — ${managerReportTo}`, 15, 80);
+      autoTable(pdf, { startY: 88, head: [[pTr("Présences","Attendance"), pTr("Ponctualité","Punctuality"), pTr("Arrivée moyenne","Average arrival"), pTr("Sortie moyenne","Average exit"), pTr("Durée moyenne","Average duration")]], body: [[String(summary.attendanceDays || 0), `${summary.punctualityRate || 0}%`, summary.averageArrival || "—", summary.averageDeparture || "—", `${Math.floor((summary.averagePresenceMinutes || 0) / 60)} h ${String((summary.averagePresenceMinutes || 0) % 60).padStart(2, "0")}`]], headStyles: { fillColor: [7, 90, 123] }, styles: { fontSize: 9 } });
+      autoTable(pdf, { startY: ((pdf as any).lastAutoTable?.finalY || 92) + 8, head: [[pTr("Date","Date"), pTr("Entrée","Entry"), pTr("Sortie","Exit"), pTr("Durée","Duration"), pTr("Statut","Status"), pTr("Point","Gate")]], body: (summary.dayDetails || []).map((day: any) => [day.date, formatTimeValue(day.firstEntry), formatTimeValue(day.lastExit), day.durationMinutes == null ? pTr("Incomplet","Incomplete") : `${Math.floor(day.durationMinutes / 60)}h${String(day.durationMinutes % 60).padStart(2, "0")}`, day.late ? pTr("Retard","Late") : pTr("À l'heure","On time"), day.gate || "—"]), headStyles: { fillColor: [45, 212, 191], textColor: [3, 41, 66] }, styles: { fontSize: 8.5, cellPadding: 2.5 } });
       pdf.setDrawColor(226, 169, 47); pdf.setLineWidth(.7); pdf.line(15, 277, 195, 277); pdf.setFontSize(8); pdf.setTextColor(90, 110, 125); pdf.text("Kinshasa Christian School · Macampagne, Ngaliema · Kinshasa, RDC", 15, 283); pdf.text(`${documentId} · ${report.timezone || "Africa/Kinshasa"}`, 195, 283, { align: "right" });
       pdf.save(`sentinel-${person.fullName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${managerReportFrom}-${managerReportTo}.pdf`);
     } catch (error) {
@@ -767,9 +772,9 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       const visitor: VisitorDirectoryItem = { id: payload.id, full_name: payload.fullName || [visitorForm.lastName, visitorForm.middleName, visitorForm.firstName].filter(Boolean).join(" "), purpose: visitorForm.purpose, host_name: visitorForm.hostName, movement_count: 1, visit_count: 1, last_visit_at: payload.enteredAt };
       setVisitors((current) => [visitor, ...current]);
       setVisitorForm({ lastName: "", middleName: "", firstName: "", purpose: "", hostName: "" });
-      setMovementNotice(`${visitor.full_name} est enregistré · entrée officielle liée à ${payload.enteredAt ? formatDateTimeValue(payload.enteredAt) : "l'heure serveur"}. La sortie restera traçable sur la même fiche.`);
+      setOperationDialog({ kind: "success", title: tr("Visiteur enregistré", "Visitor registered"), message: `${visitor.full_name} · ${tr("entrée officielle", "official entry")} ${payload.enteredAt ? formatDateTimeValue(payload.enteredAt) : tr("à l'heure serveur", "at server time")}. ${tr("La sortie restera traçable sur la même fiche.", "The exit will remain traceable on the same record.")}` });
     } catch (error) {
-      setMovementNotice(error instanceof Error ? error.message : "Le visiteur n'a pas pu être enregistré.");
+      setOperationDialog({ kind: "error", title: tr("Enregistrement refusé", "Registration failed"), message: error instanceof Error ? error.message : tr("Le visiteur n'a pas pu être enregistré.", "The visitor could not be registered.") });
     } finally {
       setMovementBusy("");
     }
@@ -2026,6 +2031,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                 </div>
 
                 {movementNotice && <div className="mt-4 rounded-2xl border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm leading-6 text-cyan">{movementNotice}</div>}
+                {operationDialog && <div className="fixed inset-0 z-[250] flex items-center justify-center bg-[#011728]/75 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="sentinel-operation-title"><section className={`w-full max-w-xl rounded-[2rem] border p-7 text-center shadow-2xl sm:p-9 ${operationDialog.kind === 'success' ? 'border-emerald-300/40 bg-[#052e3a]' : 'border-rose-300/40 bg-[#351826]'}`}><div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full text-3xl ${operationDialog.kind === 'success' ? 'bg-emerald-300 text-emerald-950' : 'bg-rose-300 text-rose-950'}`}>{operationDialog.kind === 'success' ? '✓' : '!'}</div><h3 id="sentinel-operation-title" className="mt-5 text-2xl font-black text-white">{operationDialog.title}</h3><p className="mt-3 text-sm leading-7 text-slate-200">{operationDialog.message}</p><button type="button" onClick={()=>setOperationDialog(null)} className={`mt-6 w-full rounded-xl px-5 py-3 text-sm font-black shadow-lg transition hover:-translate-y-0.5 ${operationDialog.kind === 'success' ? 'bg-emerald-300 text-emerald-950' : 'bg-rose-300 text-rose-950'}`}>{tr('Compris','Done')}</button></section></div>}
 
                 <div className="mt-5 grid gap-4 xl:grid-cols-2">
                   <section className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">

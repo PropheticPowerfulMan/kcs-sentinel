@@ -4,6 +4,7 @@ export type OrbitPerson = {
   id: string; displayId?: string; fullName: string; email?: string | null; phone?: string | null;
   status?: string | null; className?: string | null; accessCode?: string | null;
   employeeType?: string | null; department?: string | null; jobTitle?: string | null;
+  preferredLanguage?: "fr" | "en" | string | null; language?: "fr" | "en" | string | null;
   kind: "STUDENT" | "TEACHER" | "STAFF" | "PARENT";
 };
 type Directory = { students?: any[]; teachers?: any[]; staff?: any[]; parents?: any[] };

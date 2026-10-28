@@ -51,6 +51,7 @@ export async function createLateAlert(client: PoolClient, person: OrbitPerson, o
 
 export async function deliverLateAlert(alert: LateAlertRow & { person: OrbitPerson }) {
   try {
+    const language = String(alert.person.preferredLanguage || alert.person.language || "fr").toLowerCase().startsWith("en") ? "en" : "fr";
     const response = await fetch(new URL("/api/sentinel-notifications/deliver", env.nexusApiUrl), {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": env.orbitApiKey },
@@ -59,8 +60,9 @@ export async function deliverLateAlert(alert: LateAlertRow & { person: OrbitPers
         orbitPersonId: alert.person.id,
         email: alert.person.email || undefined,
         phone: alert.person.phone || undefined,
-        title: alert.title_fr,
-        text: alert.message_fr,
+        title: language === "en" ? alert.title_en : alert.title_fr,
+        text: language === "en" ? alert.message_en : alert.message_fr,
+        language,
         channels: ["IN_APP", "EMAIL", "SMS"],
         source: "KCS_SENTINEL",
         timezone: SCHOOL_TIMEZONE,
