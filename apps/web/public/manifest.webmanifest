@@ -7,7 +7,7 @@
   "background_color": "#031d32",
   "display": "standalone",
   "orientation": "any",
-  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v10",
+  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v11",
   "scope": "/sentinel/",
   "launch_handler": { "client_mode": ["navigate-new", "auto"] },
   "handle_links": "preferred",
