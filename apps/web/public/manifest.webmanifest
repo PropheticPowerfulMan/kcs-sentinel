@@ -1,5 +1,5 @@
 {
-  "id": "/sentinel/?app=kcs-sentinel-v9",
+  "id": "/sentinel/",
   "name": "KCS SENTINEL",
   "short_name": "SENTINEL",
   "description": "Biometric attendance and school entrance control platform for KCS campuses.",
@@ -7,10 +7,11 @@
   "background_color": "#031d32",
   "display": "standalone",
   "orientation": "any",
-  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v9",
+  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v10",
   "scope": "/sentinel/",
   "launch_handler": { "client_mode": ["navigate-new", "auto"] },
   "handle_links": "preferred",
+  "prefer_related_applications": false,
   "categories": ["education", "security", "productivity"],
   "shortcuts": [
     { "name": "Poste d’entrée", "short_name": "Entrée", "url": "/sentinel/gate?source=pwa-sentinel", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
