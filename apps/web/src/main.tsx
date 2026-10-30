@@ -4,6 +4,19 @@ import ReactDOM from "react-dom/client";
 import InstitutionalGate from "./InstitutionalGate";
 import "./index.css";
 
+type SentinelInstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
+declare global { interface Window { __kcsSentinelInstallPrompt?: SentinelInstallPrompt } }
+
+// Chromium can emit beforeinstallprompt before React effects mount. Capture it
+// at module initialization so the visible Install button always invokes the
+// native PWA flow instead of behaving like a simple browser shortcut.
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  window.__kcsSentinelInstallPrompt = event as SentinelInstallPrompt;
+  window.dispatchEvent(new Event('kcs:sentinel-install-ready'));
+});
+window.addEventListener('appinstalled', () => { window.__kcsSentinelInstallPrompt = undefined; });
+
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
     let reloadingForSentinelUpdate = false;

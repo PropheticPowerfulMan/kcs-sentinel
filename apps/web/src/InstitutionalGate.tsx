@@ -76,7 +76,7 @@ export default function InstitutionalGate() {
   const [incidentDate, setIncidentDate] = useState(new Date().toISOString().slice(0, 10))
   const [reason, setReason] = useState('')
   const [selectedPeriod, setSelectedPeriod] = useState('monthly')
-  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null)
+  const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(() => window.__kcsSentinelInstallPrompt as InstallPrompt | null || null)
   const [installNotice, setInstallNotice] = useState('')
   const [justificationQuery, setJustificationQuery] = useState('')
   const [justificationStatus, setJustificationStatus] = useState('ALL')
@@ -101,10 +101,12 @@ export default function InstitutionalGate() {
 
   useEffect(() => {
     const capture = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPrompt) }
+    const captureEarly = () => setInstallPrompt(window.__kcsSentinelInstallPrompt as InstallPrompt | null || null)
     const installed = () => { setInstallPrompt(null); setInstallNotice('KCS Sentinel est installé sur cet appareil.') }
     window.addEventListener('beforeinstallprompt', capture)
+    window.addEventListener('kcs:sentinel-install-ready', captureEarly)
     window.addEventListener('appinstalled', installed)
-    return () => { window.removeEventListener('beforeinstallprompt', capture); window.removeEventListener('appinstalled', installed) }
+    return () => { window.removeEventListener('beforeinstallprompt', capture); window.removeEventListener('kcs:sentinel-install-ready', captureEarly); window.removeEventListener('appinstalled', installed) }
   }, [])
 
   useEffect(() => {
@@ -170,6 +172,7 @@ export default function InstitutionalGate() {
     await installPrompt.prompt(); const choice = await installPrompt.userChoice
     setInstallNotice(choice.outcome === 'accepted' ? 'Installation Sentinel acceptée.' : 'Installation annulée. Vous pourrez la relancer ici.')
     setInstallPrompt(null)
+    window.__kcsSentinelInstallPrompt = undefined
   }
 
   const printPersonalReport = async () => {
