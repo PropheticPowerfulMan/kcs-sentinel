@@ -1,5 +1,5 @@
 {
-  "id": "/sentinel/pwa/kcs-sentinel-gate-v13",
+  "id": "/sentinel/app",
   "name": "KCS SENTINEL",
   "short_name": "SENTINEL",
   "description": "Biometric attendance and school entrance control platform for KCS campuses.",
@@ -8,7 +8,7 @@
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
-  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v13",
+  "start_url": "/sentinel/?source=kcs-sentinel-pwa-v14",
   "scope": "/sentinel/",
   "launch_handler": { "client_mode": ["focus-existing", "auto"] },
   "handle_links": "preferred",

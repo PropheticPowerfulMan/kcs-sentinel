@@ -25,11 +25,9 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
       reloadingForSentinelUpdate = true;
       window.location.reload();
     });
-    const sentinelScope = new URL(import.meta.env.BASE_URL, window.location.origin).href;
-    void navigator.serviceWorker.getRegistrations().then(async (registrations) => {
-      // Retire an obsolete root-scoped Nexus worker before installing Sentinel's
-      // narrower scope. This migration prevents the browser from reopening Nexus.
-      await Promise.all(registrations.filter((registration) => registration.scope !== sentinelScope && sentinelScope.startsWith(registration.scope)).map((registration) => registration.unregister()));
+    void navigator.serviceWorker.getRegistrations().then(async () => {
+      // Sentinel owns only /sentinel/. Keep Nexus and sibling PWA
+      // registrations intact and rely on the most-specific browser scope.
       const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL, updateViaCache: "none" });
       await registration.update();
     });
