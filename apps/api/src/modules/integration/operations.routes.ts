@@ -12,7 +12,20 @@ import { createLateAlert, deliverLateAlert, listAlerts } from "../notifications/
 const router = Router();
 const safe = (handler: (req: any, res: any, next: any) => unknown) => (req: any, res: any, next: any) => Promise.resolve(handler(req, res, next)).catch(next);
 type Session = { sub: string; role: string; personId: string; fullName: string };
-const auth = (req: any, res: any, next: any) => { try { const token=String(req.headers.authorization||'').replace(/^Bearer /,''); req.sentinelUser=jwt.verify(token,env.jwtSecret) as Session; next(); } catch { res.status(401).json({message:'Invalid or expired institutional session'}); } };
+const auth = async (req: any, res: any, next: any) => {
+  try {
+    const token=String(req.headers.authorization||'').replace(/^Bearer /,'');
+    req.sentinelUser=jwt.verify(token,env.jwtSecret) as Session;
+    if (req.sentinelUser.role === 'entity') {
+      const url = new URL('/api/integration/read/identity-access/'+encodeURIComponent(req.sentinelUser.personId),env.orbitApiUrl);
+      url.searchParams.set('organizationId',env.orbitOrganizationId);
+      const response=await fetch(url,{headers:{'x-api-key':env.orbitApiKey,'x-app-slug':'KCS_SENTINEL'},signal:AbortSignal.timeout(6000)});
+      if(!response.ok)return res.status(503).json({message:'Institutional account verification is temporarily unavailable'});
+      if(!(await response.json() as {allowed?:boolean}).allowed)return res.status(403).json({message:'This institutional account is inactive or archived'});
+    }
+    next();
+  } catch { res.status(401).json({message:'Invalid or expired institutional session'}); }
+};
 const manager = (req:any,res:any,next:any) => ['admin','super_admin','school_admin','security_operator'].includes(String(req.sentinelUser?.role).toLowerCase()) ? next() : res.status(403).json({message:'Guard or administrator access required'});
 const protectBiometric = (identityId:string,template:string) => 'v1:' + crypto.createHmac('sha256',env.biometricSecret).update(identityId).update('\0').update(template).digest('hex');
 const secureEqual = (left:string,right:string) => { const a=Buffer.from(left),b=Buffer.from(right); return a.length===b.length&&crypto.timingSafeEqual(a,b); };
