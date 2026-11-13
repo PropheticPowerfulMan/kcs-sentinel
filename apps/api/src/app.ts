@@ -1,3 +1,4 @@
+import {nexusAttendanceRouter} from './modules/integration/nexus-attendance.routes.js'
 import cors from "cors";
 import express from "express";
 import { ZodError } from "zod";
@@ -11,6 +12,7 @@ export const createApp = () => {
     app.use(cors());
   }
   app.use(express.json({ limit: "2mb" }));
+  app.use("/api", nexusAttendanceRouter);
   app.use("/api", operationsRouter);
   app.use("/api", router);
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
