@@ -1,5 +1,7 @@
+import {summarizePresence,schoolDate} from '../attendance/attendance-statistics.js';
 import { loadOfficialAcademicCalendars, listSchoolCalendarDaysInRange } from '../calendar/calendar.repository.js';
 import { countOfficialSchoolDays, isOfficialSchoolDay } from '../calendar/academic-calendar.js';
+import {createAccessVerifier} from './ecosystem-access-verifier.js';
 import crypto from "node:crypto";
 import { Router } from "express";
 import jwt from "jsonwebtoken";
@@ -13,11 +15,13 @@ import { createLateAlert, deliverLateAlert, listAlerts } from "../notifications/
 
 const router = Router();
 const safe = (handler: (req: any, res: any, next: any) => unknown) => (req: any, res: any, next: any) => Promise.resolve(handler(req, res, next)).catch(next);
+const verifyEcosystemAccess=createAccessVerifier({url:env.orbitApiUrl,key:env.orbitApiKey,organization:env.orbitOrganizationId,app:'KCS_SENTINEL'});
 type Session = { sub: string; role: string; personId: string; fullName: string };
 const auth = async (req: any, res: any, next: any) => {
   try {
     const token=String(req.headers.authorization||'').replace(/^Bearer /,'');
     req.sentinelUser=jwt.verify(token,env.jwtSecret) as Session;
+    if(req.sentinelUser.sub!=='configured-superadmin')await verifyEcosystemAccess([req.sentinelUser.sub,req.sentinelUser.personId]);
     if (req.sentinelUser.role === 'entity') {
       const url = new URL('/api/integration/read/identity-access/'+encodeURIComponent(req.sentinelUser.personId),env.orbitApiUrl);
       url.searchParams.set('organizationId',env.orbitOrganizationId);
@@ -26,7 +30,7 @@ const auth = async (req: any, res: any, next: any) => {
       if(!(await response.json() as {allowed?:boolean}).allowed)return res.status(403).json({message:'This institutional account is inactive or archived'});
     }
     next();
-  } catch { res.status(401).json({message:'Invalid or expired institutional session'}); }
+  } catch(error:any) { if(error?.status===403||error?.status===503)return res.status(error.status).json({message:error.message});res.status(401).json({message:'Invalid or expired institutional session'}); }
 };
 const manager = (req:any,res:any,next:any) => ['admin','super_admin','school_admin','security_operator'].includes(String(req.sentinelUser?.role).toLowerCase()) ? next() : res.status(403).json({message:'Guard or administrator access required'});
 const protectBiometric = (identityId:string,template:string) => 'v1:' + crypto.createHmac('sha256',env.biometricSecret).update(identityId).update('\0').update(template).digest('hex');
@@ -143,7 +147,7 @@ router.get('/reports/operations',auth,manager,safe(async(req,res)=>{
   const range=z.object({from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),to:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}).parse(req.query);
   if(range.from>range.to)return res.status(400).json({message:'Invalid report date range'});
   const days=Math.floor((new Date(`${range.to}T12:00:00Z`).getTime()-new Date(`${range.from}T12:00:00Z`).getTime())/86400000)+1;
-  if(days<1||days>370)return res.status(400).json({message:'The report range must be between 1 and 370 days'});
+  if(!Number.isFinite(days)||days<1||days>370)return res.status(400).json({message:'The report range must be between 1 and 370 days'});
   const result=await pool.query(`SELECT m.id,m.person_id,m.person_type,m.direction,m.gate,m.source,m.occurred_at,m.observed_timezone,v.full_name AS visitor_name,v.organization,v.purpose,v.host_name FROM sentinel_movements m LEFT JOIN sentinel_visitors v ON v.id::text=m.person_id AND m.person_type='VISITOR' WHERE (m.occurred_at AT TIME ZONE 'Africa/Kinshasa')::date BETWEEN $1::date AND $2::date ORDER BY m.occurred_at DESC LIMIT 20000`,[range.from,range.to]);
   const directory=await loadOrbitDirectory(); const orbitById=new Map(directory.map(person=>[person.id,person]));
   const movements=result.rows.map(row=>{const person=row.person_type==='ORBIT'?orbitById.get(row.person_id):null;return {...row,fullName:person?.fullName||row.visitor_name||'Identité non résolue',kind:person?.kind||(row.person_type==='VISITOR'?'VISITOR':'ORBIT'),displayId:person?.displayId||null,className:person?.className||null,jobTitle:person?.jobTitle||null};});
@@ -152,50 +156,32 @@ router.get('/reports/operations',auth,manager,safe(async(req,res)=>{
   for(const row of movements){const localDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Kinshasa',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(row.occurred_at));if(localDate!==today||row.person_type!=='ORBIT'||!['TEACHER','STAFF'].includes(String(row.kind)))continue;const current=employeeToday.get(row.person_id)||{...row,firstEntry:null,lastExit:null,latestDirection:row.direction,latestAt:row.occurred_at};if(row.direction==='ENTRY'&&(!current.firstEntry||new Date(row.occurred_at)<new Date(current.firstEntry)))current.firstEntry=row.occurred_at;if(row.direction==='EXIT'&&(!current.lastExit||new Date(row.occurred_at)>new Date(current.lastExit)))current.lastExit=row.occurred_at;if(new Date(row.occurred_at)>=new Date(current.latestAt)){current.latestAt=row.occurred_at;current.latestDirection=row.direction;}employeeToday.set(row.person_id,current);}
   const employeePresence=[...employeeToday.values()].sort((a,b)=>String(a.fullName).localeCompare(String(b.fullName),'fr'));
   const entries=movements.filter(row=>row.direction==='ENTRY').length; const exits=movements.filter(row=>row.direction==='EXIT').length;
-  res.json({from:range.from,to:range.to,timezone:'Africa/Kinshasa',generatedAt:new Date().toISOString(),summary:{movements:movements.length,entries,exits,orbitMovements:movements.filter(row=>row.person_type==='ORBIT').length,visitorMovements:movements.filter(row=>row.person_type==='VISITOR').length,uniquePeople:new Set(movements.map(row=>`${row.person_type}:${row.person_id}`)).size,presentEmployees:employeePresence.filter(row=>row.latestDirection==='ENTRY').length},employeePresence,movements});
+  const [dailyRows,absenceReasons,official,schoolClosures]=await Promise.all([
+    pool.query("SELECT person_id, (occurred_at AT TIME ZONE 'Africa/Kinshasa')::date::text AS day,MIN(occurred_at) FILTER (WHERE direction='ENTRY') AS first_entry,MAX(occurred_at) FILTER (WHERE direction='EXIT') AS last_exit FROM sentinel_movements WHERE person_type='ORBIT' AND (occurred_at AT TIME ZONE 'Africa/Kinshasa')::date BETWEEN $1::date AND $2::date GROUP BY person_id,day",[range.from,range.to]),
+    pool.query('SELECT person_id,incident_date::text,incident_type,status,reason FROM sentinel_justifications WHERE incident_date BETWEEN $1::date AND $2::date',[range.from,range.to]),loadOfficialAcademicCalendars(),listSchoolCalendarDaysInRange(range.from,range.to)
+  ]);
+  const entriesByPerson=new Map<string,any[]>(),reasonsByPerson=new Map<string,any[]>();
+  for(const row of dailyRows.rows){const values=entriesByPerson.get(row.person_id)||[];if(row.first_entry)values.push({occurred_at:row.first_entry,direction:'ENTRY'});if(row.last_exit)values.push({occurred_at:row.last_exit,direction:'EXIT'});entriesByPerson.set(row.person_id,values)}
+  for(const row of absenceReasons.rows)reasonsByPerson.set(row.person_id,[...(reasonsByPerson.get(row.person_id)||[]),row]);
+  const closureMap=new Map(schoolClosures.map(day=>[day.date,day.isSchoolDay])),summaryNow=new Date();
+  if(official.source==='LOCAL_FALLBACK')return res.status(503).json({message:'The published academic calendar is temporarily unavailable. No absence totals have been invented.'});
+  const attendanceByPerson=directory.filter(person=>['STUDENT','TEACHER','STAFF'].includes(person.kind)).map(person=>{const policy=attendancePolicyFor(person);const value=summarizePresence({from:range.from,to:range.to,now:summaryNow,movements:entriesByPerson.get(person.id)||[],justifications:reasonsByPerson.get(person.id)||[],calendars:official.calendars,overrides:closureMap,lateAfterMinutes:policy.lateAfterMinutes,arrivalDeadlineMinutes:person.kind==='STUDENT'?480:450});return {personId:person.id,fullName:person.fullName,kind:person.kind,className:person.className,expectedSchoolDays:value.expectedSchoolDays,attendanceDays:value.attendanceDays,absentDays:value.absentDays,excusedAbsentDays:value.excusedAbsentDays,lateDays:value.lateDays,presenceRate:value.presenceRate}});
+  const attendanceTotals=attendanceByPerson.reduce((sum,row)=>({expectedSchoolDays:sum.expectedSchoolDays+row.expectedSchoolDays,attendanceDays:sum.attendanceDays+row.attendanceDays,absentDays:sum.absentDays+row.absentDays,excusedAbsentDays:sum.excusedAbsentDays+row.excusedAbsentDays}),{expectedSchoolDays:0,attendanceDays:0,absentDays:0,excusedAbsentDays:0});
+  res.json({from:range.from,to:range.to,timezone:'Africa/Kinshasa',generatedAt:new Date().toISOString(),summary:{...attendanceTotals,movements:movements.length,entries,exits,orbitMovements:movements.filter(row=>row.person_type==='ORBIT').length,visitorMovements:movements.filter(row=>row.person_type==='VISITOR').length,uniquePeople:new Set(movements.map(row=>`${row.person_type}:${row.person_id}`)).size,presentEmployees:employeePresence.filter(row=>row.latestDirection==='ENTRY').length},attendanceByPerson,employeePresence,movements});
 }));
-router.get('/reports/:personId',auth,safe(async(req:any,res)=>{if(req.sentinelUser.role==='entity'&&req.sentinelUser.personId!==req.params.personId)return res.status(403).json({message:'You may only view your own attendance'});const range=z.object({from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),to:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()}).parse(req.query);if((range.from&&!range.to)||(!range.from&&range.to))return res.status(400).json({message:'Both from and to dates are required'});if(range.from&&range.to&&range.from>range.to)return res.status(400).json({message:'Invalid report date range'});res.json(await statistics(req.params.personId,range.from,range.to));}));
+router.get('/reports/:personId',auth,safe(async(req:any,res)=>{if(req.sentinelUser.role==='entity'&&req.sentinelUser.personId!==req.params.personId)return res.status(403).json({message:'You may only view your own attendance'});const range=z.object({from:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),to:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()}).parse(req.query);if((range.from&&!range.to)||(!range.from&&range.to))return res.status(400).json({message:'Both from and to dates are required'});if(range.from&&range.to){const a=new Date(range.from+'T12:00:00Z'),b=new Date(range.to+'T12:00:00Z'),days=(+b-+a)/86400000+1;if(!Number.isFinite(days)||days<1||days>370||a.toISOString().slice(0,10)!==range.from||b.toISOString().slice(0,10)!==range.to)return res.status(400).json({message:'Choose valid report dates within a range of 1 to 370 days'});}res.json(await statistics(req.params.personId,range.from,range.to));}));
 async function statistics(personId:string,reportFrom?:string,reportTo?:string){
-  const person=(await loadOrbitDirectory()).find(item=>item.id===personId)??null;
-  const policy=attendancePolicyFor(person);
-  const result=await pool.query(`SELECT occurred_at,direction,gate,source FROM sentinel_movements WHERE person_id=$1 ORDER BY occurred_at DESC LIMIT 5000`,[personId]);
-  const now=new Date();
-  const schoolTimezone='Africa/Kinshasa';
-  const localParts=(date:Date)=>Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:schoolTimezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));
-  const localDateKey=(date:Date)=>{const parts=localParts(date);return `${parts.year}-${parts.month}-${parts.day}`;};
-  const localClockMinutes=(date:Date)=>kinshasaClockMinutes(date);
-  const windows=[['daily',1],['weekly',7],['monthly',31],['yearly',366]] as const;
-  const [officialCalendar,schoolDayOverrides]=await Promise.all([loadOfficialAcademicCalendars(),listSchoolCalendarDaysInRange(reportFrom||localDateKey(new Date(now.getTime()-370*86400000)),reportTo||localDateKey(now))]);
-  const overrideMap=new Map(schoolDayOverrides.map(item=>[item.date,item.isSchoolDay]));
-  const rows=result.rows.map(row=>({...row,occurredAt:new Date(row.occurred_at)})).filter(row=>Number.isFinite(row.occurredAt.getTime()));
-  const summarize=(days:number,exactRange?:{from:string;to:string})=>{
-    const floor=new Date(localDateKey(new Date(now.getTime()-(days-1)*86400000))+'T00:00:00+01:00').getTime();
-    const previousFloor=floor-days*86400000;
-    const current=exactRange?rows.filter(row=>{const key=localDateKey(row.occurredAt);return key>=exactRange.from&&key<=exactRange.to;}):rows.filter(row=>row.occurredAt.getTime()>=floor);
-    const previous=exactRange?[]:rows.filter(row=>row.occurredAt.getTime()>=previousFloor&&row.occurredAt.getTime()<floor);
-    const byDay=new Map<string,typeof current>();
-    for(const row of current){const key=localDateKey(row.occurredAt);byDay.set(key,[...(byDay.get(key)||[]),row]);}
-    const dayDetails=[...byDay.entries()].sort(([a],[b])=>b.localeCompare(a)).map(([date,events])=>{
-      const entries=events.filter(event=>event.direction==='ENTRY').sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime());
-      const exits=events.filter(event=>event.direction==='EXIT').sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime());
-      const firstEntry=entries[0]?.occurredAt??null; const lastExit=exits.at(-1)?.occurredAt??null;
-      const durationMinutes=firstEntry&&lastExit&&lastExit>firstEntry?Math.round((lastExit.getTime()-firstEntry.getTime())/60000):null;
-      const late=Boolean(firstEntry&&policy.lateAfterMinutes!==null&&localClockMinutes(firstEntry)>policy.lateAfterMinutes);
-      return {date,firstEntry:firstEntry?.toISOString()??null,lastExit:lastExit?.toISOString()??null,durationMinutes,late,gate:events[0]?.gate??null,source:events[0]?.source??null};
-    });
-    const arrivalMinutes=dayDetails.filter(day=>day.firstEntry).map(day=>localClockMinutes(new Date(day.firstEntry!)));
-    const departureMinutes=dayDetails.filter(day=>day.lastExit).map(day=>localClockMinutes(new Date(day.lastExit!)));
-    const durations=dayDetails.map(day=>day.durationMinutes).filter((value):value is number=>value!==null);
-    const attendanceDays=dayDetails.length; const lateDays=dayDetails.filter(day=>day.late).length;
-    const rangeStart=exactRange?new Date(`${exactRange.from}T12:00:00Z`):new Date(floor);
-    const rangeEnd=exactRange?new Date(`${exactRange.to}T12:00:00Z`):now;
-    const expectedSchoolDays=countOfficialSchoolDays(localDateKey(rangeStart),localDateKey(rangeEnd),officialCalendar.calendars,overrideMap);
-    const countedAttendanceDays=dayDetails.filter(day=>isOfficialSchoolDay(day.date,officialCalendar.calendars,overrideMap)).length;
-    const average=(values:number[])=>values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length):null;
-    const formatClock=(minutes:number|null)=>minutes===null?null:`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
-    const previousDays=new Set(previous.map(row=>localDateKey(row.occurredAt))).size;
-    return {expectedSchoolDays,calendarSource:officialCalendar.source,entries:current.filter(row=>row.direction==='ENTRY').length,exits:current.filter(row=>row.direction==='EXIT').length,attendanceDays,completeDays:dayDetails.filter(day=>day.firstEntry&&day.lastExit).length,lateDays,punctualityRate:attendanceDays?Number((((attendanceDays-lateDays)/attendanceDays)*100).toFixed(1)):0,presenceRate:expectedSchoolDays?Number((Math.min(countedAttendanceDays/expectedSchoolDays,1)*100).toFixed(1)):0,averageArrival:formatClock(average(arrivalMinutes)),averageDeparture:formatClock(average(departureMinutes)),totalPresenceMinutes:durations.reduce((sum,value)=>sum+value,0),averagePresenceMinutes:average(durations)??0,trendDays:attendanceDays-previousDays,dayDetails,movements:current.map(({occurredAt,...row})=>({...row,occurred_at:occurredAt.toISOString()}))};
-  };
-  return {personId,generatedAt:now.toISOString(),timezone:schoolTimezone,attendancePolicy:policy,periods:Object.fromEntries(windows.map(([name,days])=>[name,summarize(days)])),...(reportFrom&&reportTo?{custom:{from:reportFrom,to:reportTo,...summarize(Math.max(1,Math.floor((new Date(reportTo).getTime()-new Date(reportFrom).getTime())/86400000)+1),{from:reportFrom,to:reportTo})}}:{})};
+ const person=(await loadOrbitDirectory()).find(item=>item.id===personId)??null,policy=attendancePolicyFor(person),now=new Date(),today=schoolDate(now);
+ const from=reportFrom||schoolDate(new Date(+now-731*86400000)),to=reportTo&&reportTo<today?reportTo:today;
+ const [result,justifications,official,overrides]=await Promise.all([
+  pool.query("SELECT occurred_at,direction,gate,source FROM sentinel_movements WHERE person_id=$1 AND person_type='ORBIT' AND (occurred_at AT TIME ZONE 'Africa/Kinshasa')::date BETWEEN $2::date AND $3::date ORDER BY occurred_at DESC",[personId,from,to]),
+  pool.query('SELECT incident_date::text,incident_type,status,reason FROM sentinel_justifications WHERE person_id=$1 AND incident_date BETWEEN $2::date AND $3::date ORDER BY reviewed_at DESC NULLS LAST,created_at DESC',[personId,from,to]),
+  loadOfficialAcademicCalendars(),listSchoolCalendarDaysInRange(from,to)
+ ]);
+ if(official.source==='LOCAL_FALLBACK')throw Object.assign(new Error('The published academic calendar is temporarily unavailable. Attendance statistics cannot be certified.'),{status:503});
+ const overrideMap=new Map(overrides.map(item=>[item.date,item.isSchoolDay]));
+ const summarize=(days:number,range?:{from:string;to:string})=>{const start=range?.from||schoolDate(new Date(+now-(days-1)*86400000)),end=range?.to||today;const current=summarizePresence({from:start,to:end,now,movements:result.rows,justifications:justifications.rows,calendars:official.calendars,overrides:overrideMap,lateAfterMinutes:policy.lateAfterMinutes,attendanceObligation:policy.category!=='OTHER',arrivalDeadlineMinutes:person?.kind==='STUDENT'?480:450});const prevEnd=schoolDate(new Date(new Date(start+'T12:00:00Z').getTime()-86400000)),prevStart=schoolDate(new Date(new Date(start+'T12:00:00Z').getTime()-days*86400000));const previous=range?null:summarizePresence({from:prevStart,to:prevEnd,now,movements:result.rows,justifications:justifications.rows,calendars:official.calendars,overrides:overrideMap,lateAfterMinutes:policy.lateAfterMinutes,attendanceObligation:policy.category!=='OTHER'});return {...current,calendarSource:official.source,trendDays:current.attendanceDays-(previous?.attendanceDays??0)}};
+ return {personId,generatedAt:now.toISOString(),timezone:'Africa/Kinshasa',attendancePolicy:policy,periods:Object.fromEntries([['daily',1],['weekly',7],['monthly',31],['yearly',366]].map(([name,days])=>[name,summarize(Number(days))])),...(reportFrom&&reportTo?{custom:{from:reportFrom,to:reportTo,...summarize(1,{from:reportFrom,to:reportTo})}}:{})};
 }
+
 export default router;

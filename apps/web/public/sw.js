@@ -1,4 +1,4 @@
-const CACHE_NAME = "kcs-sentinel-shell-v14-standalone";
+const CACHE_NAME = "kcs-sentinel-shell-v15-attendance-access";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [
