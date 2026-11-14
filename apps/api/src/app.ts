@@ -17,7 +17,7 @@ export const createApp = () => {
   app.use("/api", router);
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (error instanceof ZodError) { res.status(400).json({ message: "Invalid request payload", issues: error.issues }); return; }
-    if (error instanceof Error) { res.status(500).json({ message: error.message }); return; }
+    if (error instanceof Error) { res.status((error as Error & {status?:number}).status===503?503:500).json({ message: error.message }); return; }
     res.status(500).json({ message: "Unexpected server error" });
   });
   return app;
