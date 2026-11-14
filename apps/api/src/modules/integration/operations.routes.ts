@@ -1,3 +1,5 @@
+import { loadOfficialAcademicCalendars, listSchoolCalendarDaysInRange } from '../calendar/calendar.repository.js';
+import { countOfficialSchoolDays, isOfficialSchoolDay } from '../calendar/academic-calendar.js';
 import crypto from "node:crypto";
 import { Router } from "express";
 import jwt from "jsonwebtoken";
@@ -163,9 +165,11 @@ async function statistics(personId:string,reportFrom?:string,reportTo?:string){
   const localDateKey=(date:Date)=>{const parts=localParts(date);return `${parts.year}-${parts.month}-${parts.day}`;};
   const localClockMinutes=(date:Date)=>kinshasaClockMinutes(date);
   const windows=[['daily',1],['weekly',7],['monthly',31],['yearly',366]] as const;
+  const [officialCalendar,schoolDayOverrides]=await Promise.all([loadOfficialAcademicCalendars(),listSchoolCalendarDaysInRange(reportFrom||localDateKey(new Date(now.getTime()-370*86400000)),reportTo||localDateKey(now))]);
+  const overrideMap=new Map(schoolDayOverrides.map(item=>[item.date,item.isSchoolDay]));
   const rows=result.rows.map(row=>({...row,occurredAt:new Date(row.occurred_at)})).filter(row=>Number.isFinite(row.occurredAt.getTime()));
   const summarize=(days:number,exactRange?:{from:string;to:string})=>{
-    const floor=now.getTime()-days*86400000;
+    const floor=new Date(localDateKey(new Date(now.getTime()-(days-1)*86400000))+'T00:00:00+01:00').getTime();
     const previousFloor=floor-days*86400000;
     const current=exactRange?rows.filter(row=>{const key=localDateKey(row.occurredAt);return key>=exactRange.from&&key<=exactRange.to;}):rows.filter(row=>row.occurredAt.getTime()>=floor);
     const previous=exactRange?[]:rows.filter(row=>row.occurredAt.getTime()>=previousFloor&&row.occurredAt.getTime()<floor);
@@ -185,12 +189,12 @@ async function statistics(personId:string,reportFrom?:string,reportTo?:string){
     const attendanceDays=dayDetails.length; const lateDays=dayDetails.filter(day=>day.late).length;
     const rangeStart=exactRange?new Date(`${exactRange.from}T12:00:00Z`):new Date(floor);
     const rangeEnd=exactRange?new Date(`${exactRange.to}T12:00:00Z`):now;
-    const elapsedDays=Math.max(1,Math.min(days,Math.floor((rangeEnd.getTime()-rangeStart.getTime())/86400000)+1));
-    let expectedSchoolDays=0; for(let index=0;index<elapsedDays;index+=1){const date=new Date(rangeStart.getTime()+index*86400000);if(date.getUTCDay()!==0&&date.getUTCDay()!==6)expectedSchoolDays+=1;}
+    const expectedSchoolDays=countOfficialSchoolDays(localDateKey(rangeStart),localDateKey(rangeEnd),officialCalendar.calendars,overrideMap);
+    const countedAttendanceDays=dayDetails.filter(day=>isOfficialSchoolDay(day.date,officialCalendar.calendars,overrideMap)).length;
     const average=(values:number[])=>values.length?Math.round(values.reduce((sum,value)=>sum+value,0)/values.length):null;
     const formatClock=(minutes:number|null)=>minutes===null?null:`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
     const previousDays=new Set(previous.map(row=>localDateKey(row.occurredAt))).size;
-    return {entries:current.filter(row=>row.direction==='ENTRY').length,exits:current.filter(row=>row.direction==='EXIT').length,attendanceDays,completeDays:dayDetails.filter(day=>day.firstEntry&&day.lastExit).length,lateDays,punctualityRate:attendanceDays?Number((((attendanceDays-lateDays)/attendanceDays)*100).toFixed(1)):0,presenceRate:expectedSchoolDays?Number((Math.min(attendanceDays/expectedSchoolDays,1)*100).toFixed(1)):0,averageArrival:formatClock(average(arrivalMinutes)),averageDeparture:formatClock(average(departureMinutes)),totalPresenceMinutes:durations.reduce((sum,value)=>sum+value,0),averagePresenceMinutes:average(durations)??0,trendDays:attendanceDays-previousDays,dayDetails,movements:current.map(({occurredAt,...row})=>({...row,occurred_at:occurredAt.toISOString()}))};
+    return {expectedSchoolDays,calendarSource:officialCalendar.source,entries:current.filter(row=>row.direction==='ENTRY').length,exits:current.filter(row=>row.direction==='EXIT').length,attendanceDays,completeDays:dayDetails.filter(day=>day.firstEntry&&day.lastExit).length,lateDays,punctualityRate:attendanceDays?Number((((attendanceDays-lateDays)/attendanceDays)*100).toFixed(1)):0,presenceRate:expectedSchoolDays?Number((Math.min(countedAttendanceDays/expectedSchoolDays,1)*100).toFixed(1)):0,averageArrival:formatClock(average(arrivalMinutes)),averageDeparture:formatClock(average(departureMinutes)),totalPresenceMinutes:durations.reduce((sum,value)=>sum+value,0),averagePresenceMinutes:average(durations)??0,trendDays:attendanceDays-previousDays,dayDetails,movements:current.map(({occurredAt,...row})=>({...row,occurred_at:occurredAt.toISOString()}))};
   };
   return {personId,generatedAt:now.toISOString(),timezone:schoolTimezone,attendancePolicy:policy,periods:Object.fromEntries(windows.map(([name,days])=>[name,summarize(days)])),...(reportFrom&&reportTo?{custom:{from:reportFrom,to:reportTo,...summarize(Math.max(1,Math.floor((new Date(reportTo).getTime()-new Date(reportFrom).getTime())/86400000)+1),{from:reportFrom,to:reportTo})}}:{})};
 }

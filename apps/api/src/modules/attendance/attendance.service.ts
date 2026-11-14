@@ -2,7 +2,8 @@ import type { AttendanceFrequencySummary, AttendanceLedgerItem, AttendanceMetric
 import { getStudentAttendanceCountsForPeriod, getTodayAttendanceCounts, listAttendanceLedger, listRecentAttendance, listStudentAttendanceLedger } from "./attendance.repository.js";
 import { listStudents } from "../students/student.repository.js";
 import { findStudentById, toDirectoryItem } from "../students/student.repository.js";
-import { listSchoolCalendarDaysInRange } from "../calendar/calendar.repository.js";
+import { countOfficialSchoolDays } from '../calendar/academic-calendar.js';
+import { loadOfficialAcademicCalendars, listSchoolCalendarDaysInRange } from "../calendar/calendar.repository.js";
 
 export const getTodayMetrics = async (): Promise<AttendanceMetrics> => {
   const [{ present, late }, students] = await Promise.all([getTodayAttendanceCounts(), listStudents()]);
@@ -52,28 +53,8 @@ const startOfYear = (value: Date) => {
 };
 
 const countSchoolDays = async (startDate: Date, endDate: Date) => {
-  const overrides = await listSchoolCalendarDaysInRange(toDateKey(startDate), toDateKey(endDate));
-  const overrideMap = new Map(overrides.map((item) => [item.date, item.isSchoolDay]));
-  const cursor = new Date(startDate);
-  cursor.setHours(0, 0, 0, 0);
-  const end = new Date(endDate);
-  end.setHours(0, 0, 0, 0);
-
-  let total = 0;
-  while (cursor <= end) {
-    const dateKey = toDateKey(cursor);
-    const override = overrideMap.get(dateKey);
-    const defaultSchoolDay = cursor.getDay() !== 0 && cursor.getDay() !== 6;
-    const isSchoolDay = override ?? defaultSchoolDay;
-
-    if (isSchoolDay) {
-      total += 1;
-    }
-
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return total;
+  const [overrides,official]=await Promise.all([listSchoolCalendarDaysInRange(toDateKey(startDate),toDateKey(endDate)),loadOfficialAcademicCalendars()]);
+  return countOfficialSchoolDays(toDateKey(startDate),toDateKey(endDate),official.calendars,new Map(overrides.map(item=>[item.date,item.isSchoolDay])));
 };
 
 const buildPeriodSummary = async (studentId: string, period: AttendanceSummaryPeriod, label: string, startDate: Date, endDate: Date): Promise<AttendanceFrequencySummary> => {
