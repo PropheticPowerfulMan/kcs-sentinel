@@ -1,3 +1,6 @@
+import { env } from '../../config/env.js';
+import { createAcademicCalendarReader } from './academic-calendar.js';
+export const loadOfficialAcademicCalendars=createAcademicCalendarReader({url:env.orbitApiUrl,key:env.orbitApiKey,organization:env.orbitOrganizationId});
 import type { SchoolCalendarDay } from "../../core/types.js";
 import { pool } from "../../db/pool.js";
 
