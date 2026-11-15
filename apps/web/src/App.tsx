@@ -1989,6 +1989,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           {renderDesktopNavigation()}
 
           <main className="min-w-0 overflow-hidden px-3 pt-4 sm:px-5 lg:px-6">
+          <header className="sentinel-page-heading"><div><p>KCS SENTINEL · {translatedNavigation[activeView].eyebrow}</p><h2>{translatedNavigation[activeView].label}</h2><span>{({dashboard:tr('Une vue claire des présences et des mouvements de l’école.','A clear overview of school attendance and movement.'),gate:tr('Identifiez la personne et confirmez son entrée ou sa sortie.','Identify the person and confirm entry or exit.'),liveFeed:tr('Suivez les pointages confirmés et leurs horaires.','Follow confirmed check-ins and their timestamps.'),disciplinary:tr('Consultez les dossiers et les informations vérifiées.','Review records and verified information.'),staff:tr('Retrouvez le personnel et le détail de sa présence.','Find staff and their attendance details.'),attendance:tr('Recherchez les présences par personne et par période.','Search attendance by person and reporting period.')} as Record<ViewMode,string>)[activeView]}</span></div><div className="sentinel-page-marker">{tr('Registre institutionnel','Institutional register')}</div></header>
         {activeView === "gate" ? (
           <section className={`min-h-[calc(100vh-13rem)] gap-6 ${gateWorkspace === "operations" ? "grid xl:grid-cols-[1.05fr_0.95fr]" : "block"}`}>
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
