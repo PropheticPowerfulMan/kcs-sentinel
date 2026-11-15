@@ -204,8 +204,8 @@ export default function InstitutionalGate() {
   if (token && user) {
     const periods = data?.statistics?.periods || {}
     const selected = periods[selectedPeriod] || {}
-    return <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
-    <div className="mx-auto max-w-7xl">
+    return <main data-sentinel-personal className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
+    <div className="sentinel-personal-container mx-auto max-w-7xl">
       <header className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-[#073d5e]/90 p-5 shadow-2xl backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-7">
         <div className="flex items-center gap-4"><img src="./icons/kcs-logo.jpg" alt="Kinshasa Christian School" className="h-16 w-16 rounded-full border-2 border-cyan-300 object-cover" /><div><small className="font-bold tracking-[.22em] text-cyan-300">KCS SENTINEL · {t.personal}</small><h1 className="mt-1 text-2xl font-black sm:text-3xl">{user.fullName}</h1></div></div>
         <div className="flex flex-wrap gap-2"><div className="flex rounded-xl border border-cyan-300/40 bg-[#032942]/90 p-1"><button type="button" onClick={() => changeLanguage('fr')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'fr' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>FR</button><button type="button" onClick={() => changeLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'en' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>EN</button></div><button onClick={() => void install()} className="sentinel-action rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100">{t.install}</button><button onClick={logout} className="sentinel-action rounded-xl border border-rose-200/30 bg-rose-400/10 px-4 py-2 text-sm font-bold text-rose-50">{t.logout}</button></div>
