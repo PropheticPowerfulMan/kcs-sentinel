@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createAcademicCalendarReader,countOfficialSchoolDays,isOfficialSchoolDay} from './academic-calendar.js';
+import {createAcademicCalendarReader,countOfficialSchoolDays,isOfficialSchoolDay,mergePublishedSchoolDays} from './academic-calendar.js';
 const calendars=[{name:'2026-2027',startDate:'2026-09-07T00:00:00Z',endDate:'2027-06-11T23:59:59Z',status:'ACTIVE'}];
 test('published school year excludes summer and weekends, retaining explicit closures',()=>{
  const overrides=new Map([['2026-09-09',false]]);assert.equal(countOfficialSchoolDays('2026-09-01','2026-09-13',calendars,overrides),4);assert.equal(isOfficialSchoolDay('2026-07-01',calendars,new Map()),false);assert.equal(isOfficialSchoolDay('2026-09-12',calendars,new Map()),false);
@@ -11,3 +11,17 @@ test('calendar refresh coalesces requests and keeps last published dates during 
  await Promise.all([load(),load()]);assert.equal(calls,1);now=31000;offline=true;const saved=await load();assert.equal(saved.source,'STALE_ORBIT');assert.equal(saved.calendars[0].name,'2026-2027');now=32000;await load();assert.equal(calls,2);
 });
 test('first-load outage exposes an explicit fallback and never invents a calendar',async()=>{const load=createAcademicCalendarReader({url:'https://orbit.invalid',key:'test',organization:'school'},(async()=>{throw Error('offline')}) as typeof fetch);const value=await load();assert.equal(value.source,'LOCAL_FALLBACK');assert.deepEqual(value.calendars,[])});
+
+test('published closures update and reopen after leadership changes, preserving history and local exceptions',async()=>{
+ let clock=0,closed=true;const request=(async(input:RequestInfo|URL)=>String(input).includes('published-school-calendar')?new Response(JSON.stringify({calendars,publicHolidays:['05-01'],closures:[{academicYear:'2026-2027',ranges:closed?[{startDate:'2026-09-09',endDate:'2026-09-09',label:'School closure'}]:[]}]})):new Response(JSON.stringify({calendars}))) as typeof fetch;
+ const load=createAcademicCalendarReader({url:'https://orbit.invalid',key:'test',organization:'school',schoolUrl:'https://nexus.invalid/api/published-school-calendar'},request,()=>clock);
+ let snapshot=await load();assert.equal(countOfficialSchoolDays('2026-09-07','2026-09-11',snapshot.calendars,new Map()),4);assert.equal(isOfficialSchoolDay('2026-09-09',snapshot.calendars,new Map([['2026-09-09',true]])),false);
+ closed=false;clock=31000;snapshot=await load();assert.equal(countOfficialSchoolDays('2026-09-07','2026-09-11',snapshot.calendars,new Map()),5);assert.equal(isOfficialSchoolDay('2026-09-12',snapshot.calendars,new Map([['2026-09-12',true]])),false);assert.equal(isOfficialSchoolDay('2026-09-08',snapshot.calendars,new Map([['2026-09-08',false]])),false);
+ assert.equal(isOfficialSchoolDay('2027-05-01',snapshot.calendars,new Map([['2027-05-01',true]])),false);
+});
+
+test('the displayed calendar reflects removed seeded breaks and preserves custom gate closures without changing stored rows',()=>{
+ const rows=[{date:'2026-09-09',label:'Old seeded break',isSchoolDay:false},{date:'2026-09-10',label:'Gate closure',isSchoolDay:false}],copy=JSON.stringify(rows);
+ const current=[{...calendars[0],nonSchoolRanges:[{startDate:'2026-09-11',endDate:'2026-09-11',label:'Leadership closure'}],publicHolidays:[]}];
+ const effective=mergePublishedSchoolDays(rows,current,[['2026-09-09','Old seeded break']],'2026-09-07','2026-09-11');assert.deepEqual(effective.map(r=>r.date),['2026-09-10','2026-09-11']);assert.equal(JSON.stringify(rows),copy);
+});

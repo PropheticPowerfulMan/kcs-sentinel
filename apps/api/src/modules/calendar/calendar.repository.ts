@@ -1,6 +1,6 @@
 import { env } from '../../config/env.js';
-import { createAcademicCalendarReader } from './academic-calendar.js';
-export const loadOfficialAcademicCalendars=createAcademicCalendarReader({url:env.orbitApiUrl,key:env.orbitApiKey,organization:env.orbitOrganizationId});
+import { createAcademicCalendarReader,mergePublishedSchoolDays } from './academic-calendar.js';
+export const loadOfficialAcademicCalendars=createAcademicCalendarReader({url:env.orbitApiUrl,key:env.orbitApiKey,organization:env.orbitOrganizationId,schoolUrl:new URL('/api/published-school-calendar',env.nexusApiUrl).href});
 import type { SchoolCalendarDay } from "../../core/types.js";
 import { pool } from "../../db/pool.js";
 
@@ -49,7 +49,8 @@ const ensureOfficialCalendar = async () => {
 };
 
 export const listSchoolCalendarDays = async () => {
-  await ensureOfficialCalendar();
+  const official=await loadOfficialAcademicCalendars();
+  if(!official.calendars.some(c=>c.nonSchoolRanges!==undefined))await ensureOfficialCalendar();
   const result = await pool.query<SchoolCalendarDayRow>(
     `
       SELECT calendar_date::text, label, is_school_day
@@ -58,7 +59,7 @@ export const listSchoolCalendarDays = async () => {
     `
   );
 
-  return result.rows.map(toSchoolCalendarDay);
+  return mergePublishedSchoolDays(result.rows.map(toSchoolCalendarDay),official.calendars,officialClosedDays);
 };
 
 export const listSchoolCalendarDaysInRange = async (startDate: string, endDate: string) => {
@@ -72,7 +73,8 @@ export const listSchoolCalendarDaysInRange = async (startDate: string, endDate: 
     [startDate, endDate]
   );
 
-  return result.rows.map(toSchoolCalendarDay);
+  const official=await loadOfficialAcademicCalendars();
+  return mergePublishedSchoolDays(result.rows.map(toSchoolCalendarDay),official.calendars,officialClosedDays,startDate,endDate);
 };
 
 export const upsertSchoolCalendarDay = async (input: SchoolCalendarDay) => {
