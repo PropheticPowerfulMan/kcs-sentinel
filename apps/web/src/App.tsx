@@ -1903,7 +1903,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               );
             })}
           </div>
-          {onLogout && <button type="button" onClick={onLogout} className="sentinel-nav-item mt-3 w-full rounded-xl border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-left text-rose-100 transition hover:bg-rose-400/20"><div className="text-[9px] uppercase tracking-[0.16em] text-rose-200/75">Session</div><div className="mt-1 text-[13px] font-semibold leading-tight">{language === "fr" ? "Déconnexion" : "Sign out"}</div></button>}
+          {onLogout && <><a className="sentinel-action" href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener">{tr("Mot de passe Sentinel","Sentinel password")}</a><button type="button" onClick={onLogout} className="sentinel-nav-item mt-3 w-full rounded-xl border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-left text-rose-100 transition hover:bg-rose-400/20"><div className="text-[9px] uppercase tracking-[0.16em] text-rose-200/75">Session</div><div className="mt-1 text-[13px] font-semibold leading-tight">{language === "fr" ? "Déconnexion" : "Sign out"}</div></button></>}
         </div>
       </aside>
     );
