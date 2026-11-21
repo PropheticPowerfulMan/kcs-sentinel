@@ -1,3 +1,4 @@
+import {resilientFetch} from './resilientFetch'
 import PresenceTotals from './PresenceTotals'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import App, { drawKitchenStyleReport } from './App'
@@ -114,8 +115,8 @@ export default function InstitutionalGate() {
   useEffect(() => {
     if (!token || user?.role !== 'entity') return
     Promise.all([
-      fetch(API + '/me', { headers: sessionHeaders(token) }),
-      fetch(API + '/justifications', { headers: sessionHeaders(token) }),
+      resilientFetch(API + '/me', { headers: sessionHeaders(token) }),
+      resilientFetch(API + '/justifications', { headers: sessionHeaders(token) }),
     ]).then(async ([profile, justifications]) => {
       if (!profile.ok || !justifications.ok) throw new Error()
       setData({ ...(await profile.json()), ...(await justifications.json()) })
@@ -125,15 +126,16 @@ export default function InstitutionalGate() {
   useEffect(() => {
     if (!token || user?.role !== 'entity') return
     const refreshAlerts = () => {
-      if (document.visibilityState !== 'visible') return
-      void fetch(API + '/me', { headers: sessionHeaders(token) })
+      if (document.visibilityState !== 'visible'||!navigator.onLine) return
+      void resilientFetch(API + '/me', { headers: sessionHeaders(token) })
         .then(async response => { if (!response.ok) throw new Error(); return response.json() })
         .then(profile => setData((current: any) => ({ ...(current || {}), ...profile })))
         .catch(() => undefined)
     }
     const timer = window.setInterval(refreshAlerts, 30_000)
     document.addEventListener('visibilitychange', refreshAlerts)
-    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refreshAlerts) }
+    window.addEventListener('online',refreshAlerts)
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refreshAlerts); window.removeEventListener('online',refreshAlerts) }
   }, [token, user])
 
   const login = async (event: FormEvent) => {
@@ -158,7 +160,7 @@ export default function InstitutionalGate() {
       const body = await response.json()
       if (!response.ok) throw new Error(body.message)
       setReason('')
-      const refreshed = await fetch(API + '/justifications', { headers: sessionHeaders(token) }).then(item => item.json())
+      const refreshed = await resilientFetch(API + '/justifications', { headers: sessionHeaders(token) }).then(item => item.json())
       setData((current: any) => ({ ...current, ...refreshed }))
     } catch (reason: any) { setError(reason.message || 'Envoi impossible') }
     finally { setBusy(false) }
@@ -182,7 +184,7 @@ export default function InstitutionalGate() {
     if (!user || !reportFrom || !reportTo || reportFrom > reportTo) return
     setReportBusy(true); setError('')
     try {
-      const response = await fetch(`${API}/reports/${encodeURIComponent(user.personId)}?from=${reportFrom}&to=${reportTo}`, { headers: sessionHeaders(token) })
+      const response = await resilientFetch(`${API}/reports/${encodeURIComponent(user.personId)}?from=${reportFrom}&to=${reportTo}`, { headers: sessionHeaders(token) })
       const report = await response.json()
       if (!response.ok) throw new Error(report.message || 'Report unavailable')
       const summary = report.custom || {}

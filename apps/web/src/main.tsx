@@ -30,7 +30,7 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
       // registrations intact and rely on the most-specific browser scope.
       const registration = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL, updateViaCache: "none" });
       await registration.update();
-    });
+    }).catch(() => undefined);
   });
 }
 
