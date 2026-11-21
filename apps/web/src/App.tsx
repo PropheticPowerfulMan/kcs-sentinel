@@ -1,3 +1,4 @@
+import {resilientFetch} from './resilientFetch';
 import PresenceTotals from './PresenceTotals';
 import { useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
@@ -12,7 +13,7 @@ const sentinelFetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
   const token = sessionStorage.getItem("sentinel-token");
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
+  return resilientFetch(input, { ...init, headers });
 };
 const ENTRY_POINT = "School Entrance Kiosk A";
 const UNLOCK_HOLD_MS = 1800;
