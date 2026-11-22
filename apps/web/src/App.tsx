@@ -1833,58 +1833,11 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   return (
     <div data-nav-collapsed={compactNavigation} data-active-page={activeView} data-kiosk={kioskMode||undefined} className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
       <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-5 md:pb-8"}`}>
-        <header className="sentinel-command-header sticky top-0 z-30 w-full overflow-hidden border-b border-white/10 bg-white/5 px-3 py-3 shadow-glow backdrop-blur-xl sm:px-5 lg:px-6">
-          <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 flex flex-col gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                {!kioskMode&&<button type="button" className="sr-menu-toggle" aria-controls="sentinel-navigation" aria-expanded={mobileNavigation?mobileMenuOpen:!compactNavigation} aria-label={mobileNavigation?tr("Ouvrir le menu","Open navigation"):compactNavigation?tr("Développer le menu","Expand navigation"):tr("Réduire le menu","Collapse navigation")} onClick={toggleNavigation}><SentinelGlyph kind={mobileNavigation?"more":compactNavigation?"expand":"collapse"}/></button>}<SchoolLogo caption={tr("Présences et accès","Attendance & access")} />
-              </div>
-              <div className="sentinel-compact-status inline-flex w-fit items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">
-                <span className="h-2 w-2 rounded-full bg-signal shadow-[0_0_12px_rgba(28,231,176,0.9)]" />
-                {online ? tr("Campus KCS","KCS campus") : tr("Hors connexion","Offline")}
-              </div>
-            </div>
-
-            <div className="sentinel-header-actions hidden flex-wrap gap-3 md:flex">
-              <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>EN</button></div>
-              {!kioskMode && (
-                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
-                  {tr("Page active", "Active page")} : <span className="font-semibold text-white">{translatedNavigation[activeView]?.label ?? tr("Tableau de bord", "Dashboard")}</span>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  void handleInstall();
-                }}
-                className="rounded-2xl border border-neon/20 bg-neon/15 px-5 py-3 text-sm font-semibold text-white max-sm:w-full"
-              >
-                {tr("Installer l’application", "Install app")}
-              </button>
-              {!kioskMode ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void enterKioskMode();
-                  }}
-                  className="rounded-2xl bg-cyan px-5 py-3 text-sm font-semibold text-slate-950 max-sm:w-full"
-                >
-                  {tr("Mode kiosque", "Kiosk mode")}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onPointerDown={beginUnlockHold}
-                  onPointerUp={cancelUnlockHold}
-                  onPointerLeave={cancelUnlockHold}
-                  onPointerCancel={cancelUnlockHold}
-                  className={`rounded-2xl px-5 py-3 text-sm font-semibold max-sm:w-full ${unlockHolding ? "bg-amber-400 text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}
-                >
-                  {unlockHolding ? tr("Maintenez pour sortir", "Hold to exit") : tr("Déverrouiller", "Unlock")}
-                </button>
-              )}
-              {onLogout && <button type="button" onClick={onLogout} className="rounded-2xl border border-rose-300/25 bg-rose-400/10 px-5 py-3 text-sm font-semibold text-rose-100 hover:bg-rose-400/20">{language === "fr" ? "Déconnexion" : "Sign out"}</button>}
+        <header className="sentinel-command-header sr-masthead sticky top-0 z-30 w-full">
+          <div className="sr-masthead-main"><div className="sr-masthead-identity">{!kioskMode&&<button type="button" className="sr-menu-toggle" aria-controls="sentinel-navigation" aria-expanded={mobileNavigation?mobileMenuOpen:!compactNavigation} aria-label={mobileNavigation?tr("Ouvrir le menu","Open navigation"):compactNavigation?tr("Développer le menu","Expand navigation"):tr("Réduire le menu","Collapse navigation")} onClick={toggleNavigation}><SentinelGlyph kind={mobileNavigation?"more":compactNavigation?"expand":"collapse"}/></button>}<SchoolLogo caption={tr("Présences et accès","Attendance & access")}/></div>
+            <div className="sr-masthead-controls"><div className="sr-locale-switch" role="group" aria-label={tr("Langue de l’application","Application language")}><button type="button" aria-pressed={language==='fr'} onClick={()=>onLanguageChange?.('fr')}>FR</button><button type="button" aria-pressed={language==='en'} onClick={()=>onLanguageChange?.('en')}>EN</button></div>
+              <div className="sr-masthead-actions"><button type="button" onClick={()=>void handleInstall()}><SentinelGlyph kind="download"/><span>{tr("Installer","Install app")}</span></button>{!kioskMode&&<button type="button" className="sr-kiosk-launch" onClick={()=>void enterKioskMode()}><SentinelGlyph kind="gate"/><span>{tr("Mode kiosque","Kiosk mode")}</span></button>}{onLogout&&<button type="button" className="sr-masthead-logout" onClick={onLogout}><SentinelGlyph kind="exit"/><span>{tr("Déconnexion","Sign out")}</span></button>}</div>
+              {kioskMode&&<button type="button" className="sr-kiosk-unlock" data-holding={unlockHolding} onPointerDown={beginUnlockHold} onPointerUp={cancelUnlockHold} onPointerLeave={cancelUnlockHold} onPointerCancel={cancelUnlockHold}>{unlockHolding?tr("Maintenez pour sortir","Hold to exit"):tr("Déverrouiller","Unlock")}</button>}
             </div>
           </div>
         </header>
