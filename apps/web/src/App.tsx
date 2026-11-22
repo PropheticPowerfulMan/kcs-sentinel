@@ -410,7 +410,15 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [status, setStatus] = useState("Securely loading the live Orbit registry...");
   const [activeView, setActiveView] = useState<ViewMode>(() => getViewFromPath(window.location.pathname));
   const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
-  useEffect(()=>{if(!mobileMenuOpen)return;const close=(event:KeyboardEvent)=>{if(event.key==="Escape")setMobileMenuOpen(false)};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close)},[mobileMenuOpen]);
+  const [liveFeedSearch,setLiveFeedSearch]=useState("");
+  const [attendanceAudience,setAttendanceAudience]=useState<'students'|'staff'>('students');
+  const normalizedSearch=(value:string)=>value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const visibleLiveFeed=overview.liveFeed.filter(item=>normalizedSearch([item.studentName,item.className,item.entryPoint,item.studentId].join(' ')).includes(normalizedSearch(liveFeedSearch.trim())));
+  const [compactNavigation,setCompactNavigation]=useState(()=>{try{return localStorage.getItem("sentinel:compact-navigation:v1")==="1"}catch{return false}});
+  const [mobileNavigation,setMobileNavigation]=useState(()=>window.matchMedia("(max-width:767px)").matches);
+  useEffect(()=>{const media=window.matchMedia("(max-width:767px)");const change=()=>{setMobileNavigation(media.matches);setMobileMenuOpen(false)};media.addEventListener("change",change);return()=>media.removeEventListener("change",change)},[]);
+  useEffect(()=>{if(!mobileMenuOpen||!mobileNavigation)return;const prior=document.activeElement as HTMLElement|null,overflow=document.body.style.overflow;document.body.style.overflow="hidden";const drawer=document.getElementById("sentinel-navigation"),items=()=>Array.from(drawer?.querySelectorAll<HTMLElement>('button,a[href]')||[]).filter(e=>e.getClientRects().length>0);const frame=requestAnimationFrame(()=>items()[0]?.focus());const key=(e:KeyboardEvent)=>{if(e.key==="Escape"){e.preventDefault();setMobileMenuOpen(false)}if(e.key==="Tab"){const list=items(),first=list[0],last=list[list.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}};window.addEventListener("keydown",key);return()=>{cancelAnimationFrame(frame);document.body.style.overflow=overflow;window.removeEventListener("keydown",key);if(prior?.isConnected)prior.focus()}},[mobileMenuOpen,mobileNavigation]);
+  const toggleNavigation=()=>{if(mobileNavigation)setMobileMenuOpen(v=>!v);else setCompactNavigation(value=>{const next=!value;try{localStorage.setItem("sentinel:compact-navigation:v1",next?"1":"0")}catch{}return next})};
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
   const [online, setOnline] = useState(window.navigator.onLine);
@@ -1395,7 +1403,9 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   };
 
   const renderAttendanceRegister = () => (
-    <div className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-5">
+    <div data-attendance-audience={attendanceAudience} className="sr-view-card sr-history-view mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-5">
+      <div className="sr-segmented-tabs" role="tablist" aria-label={tr('Population du registre','Attendance population')}><button type="button" role="tab" aria-selected={attendanceAudience==='students'} onClick={()=>setAttendanceAudience('students')}>{tr('Élèves','Learners')}<b>{attendanceLog.length}</b></button><button type="button" role="tab" aria-selected={attendanceAudience==='staff'} onClick={()=>setAttendanceAudience('staff')}>{tr('Personnel','Staff')}<b>{operationsReport?.employeePresence.length||0}</b></button></div><div data-attendance-pane="students">
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Registre des présences du jour", "Today’s attendance register")}</div>
@@ -1478,7 +1488,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           </div>
         </>
       )}
-      <section className="mt-7 border-t border-white/10 pt-6">
+      </div><section data-attendance-pane="staff" className="mt-7 border-t border-white/10 pt-6">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-teal-200">Personnel de l'école</div><p className="mt-2 text-sm text-slate-300">Entrées et sorties des enseignants, staff et workers pour la période sélectionnée.</p></div><span className="rounded-full bg-white/5 px-3 py-2 text-xs text-slate-300">{operationsReport?.employeePresence.length || 0} personne(s)</span></div>
         <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-[#063c65] text-xs uppercase text-cyan-100"><tr><th className="p-3">Personnel</th><th className="p-3">Fonction</th><th className="p-3">Première entrée</th><th className="p-3">Dernière sortie</th><th className="p-3">État</th></tr></thead><tbody>{(operationsReport?.employeePresence || []).map((row) => <tr key={row.person_id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{row.fullName}<small className="block text-slate-400">{row.displayId || row.kind}</small></td><td className="p-3 text-slate-300">{row.jobTitle || row.kind}</td><td className="p-3 text-slate-300">{formatTimeValue(row.firstEntry)}</td><td className="p-3 text-slate-300">{formatTimeValue(row.lastExit)}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${row.latestDirection === "ENTRY" ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-slate-300"}`}>{row.latestDirection === "ENTRY" ? "Présent" : "Sorti"}</span></td></tr>)}{!operationsReport?.employeePresence.length && <tr><td colSpan={5} className="p-6 text-center text-slate-400">Aucun mouvement du personnel pour cette période.</td></tr>}</tbody></table></div>
       </section>
@@ -1487,11 +1497,11 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
   const renderDisciplinaryRegister = () => {
     if (!disciplinaryRegister || !selectedStudent) {
-      return null;
+      return <section className="sr-view-card sr-empty-register"><SentinelGlyph kind="disciplinary" width={32} height={32}/><h2>{tr('Dossier de présence élève','Learner attendance record')}</h2><p>{tr('Choisissez un élève pour consulter son bilan et son historique.','Choose a learner to view their attendance summary and history.')}</p><label className="sr-view-search"><span>{tr('Rechercher un élève','Find a learner')}</span><input type="search" value={studentRegisterSearch} onChange={e=>setStudentRegisterSearch(e.target.value)} placeholder={tr('Nom complet ou classe…','Full name or class…')}/><select aria-label={tr('Choisir un élève','Choose a learner')} value={selectedStudentId} onChange={e=>setSelectedStudentId(e.target.value)}>{filteredRegisterStudents.map(student=><option key={student.id} value={student.id}>{student.fullName} · {normalizeClassLabel(student.className)}</option>)}</select></label></section>;
     }
 
     return (
-      <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
+      <section className="sr-view-card sr-learner-view mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Registre disciplinaire</p>
@@ -1540,7 +1550,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           </label>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <div className="sr-learner-summary-grid mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
           {disciplinaryRegister.summaries.map((summary) => (
             <article key={summary.period} className="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
               <div className="text-xs uppercase tracking-[0.24em] text-slate-400">{summary.label}</div>
@@ -1639,6 +1649,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           </div>
         </div>
 
+        <details className="sr-panel-fold"><summary><SentinelGlyph kind="attendance"/><span>{tr('Calendrier et exceptions scolaires','School calendar and exceptions')}</span><b>+</b></summary>
         <div className="mt-6 rounded-3xl border border-white/10 bg-slate-950/45 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1696,12 +1707,13 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
             )}
           </div>
         </div>
+        </details>
       </section>
     );
   };
 
   const renderStaffRegister = () => (
-    <section className="mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-6">
+    <section className="sr-view-card sr-staff-view mt-6 rounded-[28px] border border-white/10 bg-slate-950/45 p-4 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-teal-200">{tr("Registre institutionnel Orbit", "Orbit institutional register")}</p>
@@ -1712,7 +1724,9 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           <input type="search" value={staffRegisterSearch} onChange={(event) => setStaffRegisterSearch(event.target.value)} placeholder={tr("Nom, code Orbit, e-mail ou fonction…", "Name, Orbit code, email or job title…")} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm normal-case tracking-normal text-white outline-none focus:border-teal-300" />
         </label>
       </div>
-      <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
+      <div className="sr-directory-summary"><span><strong>{staffDirectory.length}</strong>{tr("personnes affichées","people shown")}</span><span><strong>{staffDirectory.filter(person=>operationsReport?.employeePresence.some(row=>row.person_id===person.id&&row.latestDirection==='ENTRY')).length}</strong>{tr("présentes sur place","currently on site")}</span></div>
+      <div className="sr-staff-cards">{staffDirectory.map(person=>{const presence=operationsReport?.employeePresence.find(row=>row.person_id===person.id);return <article key={person.id}><div className="sr-person-monogram">{person.fullName.split(' ').filter(Boolean).slice(0,2).map(n=>n[0]).join('')}</div><div><h3>{person.fullName}</h3><p>{person.jobTitle||person.kind}</p><small>{person.displayId||person.id}</small></div><span className={presence?.latestDirection==='ENTRY'?'sr-presence-pill':'sr-muted-pill'}>{presence?.latestDirection==='ENTRY'?tr('Présent','On site'):presence?tr('Sorti','Left campus'):tr('Non pointé','Not checked in')}</span><dl><div><dt>{tr('Entrée','Entry')}</dt><dd>{formatTimeValue(presence?.firstEntry)}</dd></div><div><dt>{tr('Sortie','Exit')}</dt><dd>{formatTimeValue(presence?.lastExit)}</dd></div></dl></article>})}{!staffDirectory.length&&<div className="sr-empty-state">{tr('Aucun résultat. Essayez un autre nom ou code Orbit.','No matches. Try another name or Orbit code.')}</div>}</div>
+      <div className="sr-staff-table mt-5 overflow-x-auto rounded-2xl border border-white/10">
         <table className="w-full min-w-[720px] text-left text-sm"><thead className="bg-[#063c65] text-xs uppercase text-cyan-100"><tr><th className="p-3">Nom complet</th><th className="p-3">Catégorie</th><th className="p-3">Fonction</th><th className="p-3">Code Orbit</th><th className="p-3">État du jour</th></tr></thead>
           <tbody>{staffDirectory.map((person) => { const presence = operationsReport?.employeePresence.find((row) => row.person_id === person.id); return <tr key={person.id} className="border-t border-white/10"><td className="p-3 font-semibold text-white">{person.fullName}<small className="block text-slate-400">{person.email || "—"}</small></td><td className="p-3 text-slate-300">{person.kind === "TEACHER" ? "Enseignant" : "Staff / Worker"}</td><td className="p-3 text-slate-300">{person.jobTitle || "—"}</td><td className="p-3 text-slate-300">{person.displayId || person.id}</td><td className="p-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${presence?.latestDirection === "ENTRY" ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-slate-300"}`}>{presence?.latestDirection === "ENTRY" ? `Présent · ${formatTimeValue(presence.firstEntry)}` : presence ? `Sorti · ${formatTimeValue(presence.lastExit)}` : "Non pointé"}</span></td></tr>; })}{!staffDirectory.length && <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun membre du personnel ne correspond à cette recherche.</td></tr>}</tbody>
         </table>
@@ -1721,117 +1735,15 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   );
 
   const renderDashboardHome = () => (
-    <>
-      <section data-sentinel-metrics className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card) => {
-          const value = overview.metrics[card.key];
-          return (
-            <article
-              key={card.key}
-              className={`rounded-[26px] border border-white/10 bg-gradient-to-br ${card.tone} p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl`}
-            >
-              <div className="text-sm uppercase tracking-[0.18em] text-slate-300 sm:tracking-[0.24em]">{tr(({ present: "Présents aujourd’hui", late: "Arrivées tardives", absent: "Absents", biometricSuccessRate: "Précision biométrique" } as const)[card.key], card.label)}</div>
-              <div className="mt-4 break-words text-3xl font-semibold text-white sm:text-4xl">
-                {value}
-                {card.suffix ?? ""}
-              </div>
-              <div className="mt-3 text-sm text-slate-300">{overview.storageMode ?? tr("Registre persistant prêt pour l’intégration.", "Persistent ledger ready for integration.")}</div>
-            </article>
-          );
-        })}
-      </section>
-
-      <section className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Flux des présences en direct", "Live attendance feed")}</p>
-              <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Confirmations biométriques en temps réel", "Real-time biometric confirmations")}</h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => navigateToView("liveFeed")}
-              className="rounded-full border border-cyan/20 bg-cyan/10 px-4 py-2 text-sm text-cyan"
-            >
-              {tr("Ouvrir le flux complet", "Open full feed")}
-            </button>
-          </div>
-          <div className="mt-6 space-y-4">
-            {overview.liveFeed.slice(0, 4).map((item) => (
-              <div key={item.id} className="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto] md:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="break-words text-lg font-medium text-white">{item.studentName}</h3>
-                    <span className="max-w-full rounded-full border border-white/10 px-3 py-1 text-center text-xs uppercase tracking-[0.16em] text-slate-300 sm:tracking-[0.2em]">{item.className}</span>
-                    <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${item.status === "late" ? "bg-amber-500/15 text-amber-200" : "bg-cyan/15 text-cyan"}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <p className="mt-2 break-words text-sm text-slate-300">
-                    {tr("Point d’entrée", "Entry point")}: {item.entryPoint} · {tr("Source", "Source")}: {item.source} · {tr("Vérifié à", "Verified at")} {new Date(item.timestamp).toLocaleTimeString(language === "fr" ? "fr-FR" : "en-US", { timeZone: SCHOOL_TIME_ZONE })}
-                  </p>
-                </div>
-                <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-6">
-          <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Couche de sécurité et d’analyse", "Threat & insight layer")}</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Matrice de préparation IA", "AI readiness matrix")}</h2>
-            <div className="mt-5 space-y-3">
-              {Object.entries(overview.aiReadiness).map(([key, value]) => (
-                <div key={key} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/5 bg-slate-950/45 px-4 py-3">
-                  <span className="min-w-0 break-words capitalize text-slate-200">{key.replace(/([A-Z])/g, " $1")}</span>
-                  <span className={`max-w-full rounded-full px-3 py-1 text-center text-xs uppercase tracking-[0.16em] sm:tracking-[0.2em] ${value ? "bg-signal/15 text-signal" : "bg-white/10 text-slate-300"}`}>
-                    {value ? tr("Prêt", "Ready") : tr("En attente", "Pending")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Piliers de la plateforme", "Platform pillars")}</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">{tr("Parcours opérateur", "Operator journey")}</h2>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => navigateToView("disciplinary")}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-                >
-                  {tr("Registre", "Register")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateToView("attendance")}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white"
-                >
-                  {tr("Historique", "History")}
-                </button>
-              </div>
-            </div>
-            <div className="mt-5 grid gap-4">
-              {pillars.map((pillar) => (
-                <article key={pillar.title} className="rounded-3xl border border-white/5 bg-slate-950/45 p-5">
-                  <h3 className="text-lg font-medium text-white">{pillar.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">{pillar.detail}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-    </>
+    <div className="sr-dashboard-studio">
+      <section className="sr-dashboard-hero"><div><small>KCS SENTINEL · {tr('VIE DU CAMPUS','CAMPUS OVERVIEW')}</small><h2>{tr('Chaque présence,','Every arrival,')}<br/><em>{tr('une vision claire.','a clearer picture.')}</em></h2><p>{tr('Accueillez, retrouvez et suivez les mouvements de votre communauté scolaire depuis un espace unifié.','Welcome your school community and follow its movements from one organized workspace.')}</p><div><button type="button" onClick={()=>navigateToView('gate')}><SentinelGlyph kind="gate"/>{tr('Ouvrir le poste d’entrée','Open entrance desk')}</button><button type="button" onClick={()=>navigateToView('attendance')}><SentinelGlyph kind="attendance"/>{tr('Consulter le registre','View attendance register')}</button></div></div><div className="sr-campus-emblem" aria-hidden="true"><SentinelGlyph kind="disciplinary" width={76} height={76}/><span>KCS<br/>SENTINEL</span><i/></div></section>
+      <section data-sentinel-metrics className="sr-dashboard-metrics">{statCards.map(card=><article key={card.key}><span><SentinelGlyph kind={card.key==='present'?'gate':card.key==='late'?'liveFeed':card.key==='absent'?'attendance':'disciplinary'}/></span><small>{tr(({present:'Présents aujourd’hui',late:'Arrivées tardives',absent:'Absents',biometricSuccessRate:'Précision biométrique'}as const)[card.key],card.label)}</small><strong>{overview.metrics[card.key]}{card.suffix??''}</strong><p>{tr('Suivi du campus','Campus attendance')}</p></article>)}</section>
+      <section className="sr-dashboard-columns"><article className="sr-dashboard-feed"><header><div><small>{tr('MOUVEMENTS DU JOUR','TODAY’S MOVEMENTS')}</small><h3>{tr('Dernières confirmations','Latest confirmations')}</h3></div><button type="button" onClick={()=>navigateToView('liveFeed')}>{tr('Tout voir','View all')} →</button></header><div>{overview.liveFeed.slice(0,4).map(item=><div className="sr-feed-preview" key={item.id}><span><SentinelGlyph kind="gate"/></span><div><strong>{item.studentName}</strong><p>{item.className} · {item.entryPoint}</p></div><time>{formatTimeValue(item.timestamp)}</time></div>)}{!overview.liveFeed.length&&<div className="sr-empty-state"><SentinelGlyph kind="liveFeed"/><strong>{tr('Le campus en temps réel','Campus activity in real time')}</strong><p>{tr('Les confirmations de présence apparaîtront ici dès leur enregistrement.','Confirmed attendance will appear here as soon as it is recorded.')}</p></div>}</div></article><aside className="sr-dashboard-shortcuts"><small>{tr('VOTRE ESPACE','YOUR WORKSPACE')}</small><h3>{tr('Accès aux registres','Explore the registers')}</h3><div>{navigationItems.filter(item=>!['dashboard','gate'].includes(item.key)).map(item=><button type="button" key={item.key} onClick={()=>navigateToView(item.key)}><SentinelGlyph kind={item.key}/><span>{translatedNavigation[item.key].label}</span><b>→</b></button>)}</div><details className="sr-panel-fold"><summary><span>{tr('État des modules','Module readiness')}</span><b>+</b></summary><div>{Object.entries(overview.aiReadiness).map(([key,value])=><p key={key}>{key}<strong>{value?tr('Prêt','Ready'):tr('En attente','Pending')}</strong></p>)}</div></details></aside></section>
+    </div>
   );
 
   const renderLiveFeedPage = () => (
-    <section className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+    <section className="sr-view-card sr-live-view mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">{tr("Flux des présences en direct", "Live attendance feed")}</p>
@@ -1842,8 +1754,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
         </div>
         <div className="max-w-full rounded-full border border-signal/30 bg-signal/10 px-4 py-2 text-center text-sm text-signal">{overview.metrics.present + overview.metrics.late} {tr("pointages du jour", "check-ins today")}</div>
       </div>
-      <div className="mt-6 space-y-4">
-        {overview.liveFeed.map((item) => (
+      <label className="sr-view-search"><span>{tr("Rechercher dans le flux","Search attendance feed")}</span><input type="search" value={liveFeedSearch} onChange={e=>setLiveFeedSearch(e.target.value)} placeholder={tr("Nom, classe ou point d’entrée…","Name, class or entry point…")}/><small>{visibleLiveFeed.length} {tr("résultat(s)","result(s)")}</small></label><div className="sr-live-list mt-6 space-y-4">
+        {visibleLiveFeed.map((item) => (
           <div key={item.id} className="grid gap-4 rounded-3xl border border-white/5 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto] md:items-center">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
@@ -1860,6 +1772,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
             <div className="break-words text-left text-sm text-slate-400 md:text-right">{item.studentId}</div>
           </div>
         ))}
+        {!visibleLiveFeed.length&&<div className="sr-empty-state"><SentinelGlyph kind="liveFeed" width={30} height={30}/><strong>{tr("Aucune confirmation à afficher","No confirmations to display")}</strong><p>{tr("Les pointages confirmés apparaîtront ici. Ajustez la recherche si nécessaire.","Confirmed check-ins will appear here. Adjust the search if needed.")}</p></div>}
       </div>
     </section>
   );
@@ -1887,9 +1800,9 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
     }
 
     return (
-      <aside className="sentinel-side-nav hidden md:block">
+      <aside id="sentinel-navigation" className="sentinel-side-nav" data-open={mobileMenuOpen} role={mobileNavigation&&mobileMenuOpen?"dialog":undefined} aria-modal={mobileNavigation&&mobileMenuOpen?true:undefined} aria-label={tr("Navigation Sentinel","Sentinel navigation")}>
         <div className="sticky top-[88px] min-h-[calc(100dvh-100px)] rounded-r-[18px] border border-l-0 border-white/10 bg-white/[0.05] p-2 shadow-glow backdrop-blur-xl">
-          <div className="px-2 pb-2 pt-1">
+          <div className="sr-nav-heading px-2 pb-2 pt-1"><button type="button" className="sr-drawer-close" aria-label={tr("Fermer le menu","Close menu")} onClick={()=>setMobileMenuOpen(false)}><SentinelGlyph kind="close"/></button>
             <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan">{tr("Navigation Sentinel", "Sentinel navigation")}</div>
           </div>
           <div className="space-y-1.5">
@@ -1900,7 +1813,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                   key={item.key}
                   type="button"
                   aria-current={isActive ? "page" : undefined}
-                  onClick={() => navigateToView(item.key)}
+                  onClick={() => {navigateToView(item.key);setMobileMenuOpen(false)}}
+                  aria-label={translatedNavigation[item.key].label} title={translatedNavigation[item.key].label}
                   className={`sentinel-nav-item w-full rounded-xl border px-2.5 py-2 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_12px_26px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
                 >
                   <SentinelGlyph kind={item.key}/><span className="sr-nav-label"><strong>{translatedNavigation[item.key].label}</strong><small>{translatedNavigation[item.key].eyebrow}</small></span>
@@ -1908,79 +1822,22 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               );
             })}
           </div>
-          {onLogout && <><a className="sentinel-action" href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener">{tr("Mot de passe Sentinel","Sentinel password")}</a><button type="button" onClick={onLogout} className="sentinel-nav-item mt-3 w-full rounded-xl border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-left text-rose-100 transition hover:bg-rose-400/20"><div className="text-[9px] uppercase tracking-[0.16em] text-rose-200/75">Session</div><div className="mt-1 text-[13px] font-semibold leading-tight">{language === "fr" ? "Déconnexion" : "Sign out"}</div></button></>}
+          <div className="sr-nav-tools"><button type="button" aria-label={tr("Installer l’application","Install app")} title={tr("Installer l’application","Install app")} onClick={()=>{void handleInstall();setMobileMenuOpen(false)}}><SentinelGlyph kind="download"/><span>{tr("Installer l’application","Install app")}</span></button><button type="button" aria-label={tr("Mode kiosque","Kiosk mode")} title={tr("Mode kiosque","Kiosk mode")} onClick={()=>{void enterKioskMode();setMobileMenuOpen(false)}}><SentinelGlyph kind="gate"/><span>{tr("Mode kiosque","Kiosk mode")}</span></button>{onLogout&&<><a aria-label={tr("Mot de passe Sentinel","Sentinel password")} title={tr("Mot de passe Sentinel","Sentinel password")} href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener"><SentinelGlyph kind="lock"/><span>{tr("Mot de passe Sentinel","Sentinel password")}</span></a><button type="button" className="sr-signout" aria-label={tr("Déconnexion","Sign out")} title={tr("Déconnexion","Sign out")} onClick={onLogout}><SentinelGlyph kind="exit"/><span>{tr("Déconnexion","Sign out")}</span></button></>}</div>
         </div>
       </aside>
     );
   };
 
-  const renderMobileNavigation = () => {
-    if (kioskMode) {
-      return null;
-    }
-
-    return <><nav aria-label={tr("Navigation principale","Main navigation")} className="sentinel-mobile-nav sr-bottom-nav">
-      {navigationItems.filter(item=>["dashboard","gate","liveFeed","attendance"].includes(item.key)).map(item=><button key={item.key} type="button" aria-current={activeView===item.key?"page":undefined} onClick={()=>{navigateToView(item.key);setMobileMenuOpen(false)}}><SentinelGlyph kind={item.key}/><span>{translatedNavigation[item.key].shortLabel}</span></button>)}
-      <button type="button" aria-expanded={mobileMenuOpen} aria-controls="sentinel-mobile-more" onClick={()=>setMobileMenuOpen(v=>!v)}><SentinelGlyph kind="more"/><span>{tr("Plus","More")}</span></button>
-    </nav>{mobileMenuOpen&&<div id="sentinel-mobile-more" className="sr-mobile-more"><div className="sr-mobile-more-heading"><strong>{tr("Votre espace Sentinel","Your Sentinel workspace")}</strong><button type="button" aria-label={tr("Fermer le menu","Close menu")} onClick={()=>setMobileMenuOpen(false)}>×</button></div>{navigationItems.filter(item=>!["dashboard","gate","liveFeed","attendance"].includes(item.key)).map(item=><button key={item.key} type="button" onClick={()=>{navigateToView(item.key);setMobileMenuOpen(false)}}><SentinelGlyph kind={item.key}/>{translatedNavigation[item.key].label}</button>)}<button type="button" onClick={()=>{void handleInstall();setMobileMenuOpen(false)}}>{tr("Installer l’application","Install app")}</button><button type="button" onClick={()=>{void enterKioskMode();setMobileMenuOpen(false)}}>{tr("Mode kiosque","Kiosk mode")}</button><a href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener">{tr("Mot de passe Sentinel","Sentinel password")}</a>{onLogout&&<button type="button" className="sr-signout" onClick={onLogout}><SentinelGlyph kind="exit"/>{tr("Déconnexion","Sign out")}</button>}</div>}</>;
-
-  };
+  const renderMobileNavigation = () => !kioskMode&&mobileMenuOpen?<button type="button" className="sr-nav-scrim" aria-label={tr("Fermer le menu","Close menu")} onClick={()=>setMobileMenuOpen(false)}/>:null;
 
   return (
-    <div data-kiosk={kioskMode||undefined} className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
-      <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-24 md:pb-8"}`}>
-        <header className="sentinel-command-header sticky top-0 z-30 w-full overflow-hidden border-b border-white/10 bg-white/5 px-3 py-3 shadow-glow backdrop-blur-xl sm:px-5 lg:px-6">
-          <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 flex flex-col gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <SchoolLogo />
-              </div>
-              <div className="sentinel-compact-status inline-flex w-fit items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">
-                <span className="h-2 w-2 rounded-full bg-signal shadow-[0_0_12px_rgba(28,231,176,0.9)]" />
-                {online ? tr("Campus KCS","KCS campus") : tr("Hors connexion","Offline")}
-              </div>
-            </div>
-
-            <div className="sentinel-header-actions hidden flex-wrap gap-3 md:flex">
-              <div className="flex rounded-xl border border-cyan/30 bg-[#032942]/80 p-1" aria-label="Langue"><button type="button" onClick={() => onLanguageChange?.("fr")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "fr" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>FR</button><button type="button" onClick={() => onLanguageChange?.("en")} className={`rounded-lg px-3 py-2 text-xs font-black transition ${language === "en" ? "bg-[#8cecf5] text-[#032942] shadow" : "text-white hover:bg-white/10"}`}>EN</button></div>
-              {!kioskMode && (
-                <div className="hidden rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300 md:block">
-                  {tr("Page active", "Active page")} : <span className="font-semibold text-white">{translatedNavigation[activeView]?.label ?? tr("Tableau de bord", "Dashboard")}</span>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  void handleInstall();
-                }}
-                className="rounded-2xl border border-neon/20 bg-neon/15 px-5 py-3 text-sm font-semibold text-white max-sm:w-full"
-              >
-                {tr("Installer l’application", "Install app")}
-              </button>
-              {!kioskMode ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void enterKioskMode();
-                  }}
-                  className="rounded-2xl bg-cyan px-5 py-3 text-sm font-semibold text-slate-950 max-sm:w-full"
-                >
-                  {tr("Mode kiosque", "Kiosk mode")}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onPointerDown={beginUnlockHold}
-                  onPointerUp={cancelUnlockHold}
-                  onPointerLeave={cancelUnlockHold}
-                  onPointerCancel={cancelUnlockHold}
-                  className={`rounded-2xl px-5 py-3 text-sm font-semibold max-sm:w-full ${unlockHolding ? "bg-amber-400 text-slate-950" : "border border-white/10 bg-white/5 text-white"}`}
-                >
-                  {unlockHolding ? tr("Maintenez pour sortir", "Hold to exit") : tr("Déverrouiller", "Unlock")}
-                </button>
-              )}
-              {onLogout && <button type="button" onClick={onLogout} className="rounded-2xl border border-rose-300/25 bg-rose-400/10 px-5 py-3 text-sm font-semibold text-rose-100 hover:bg-rose-400/20">{language === "fr" ? "Déconnexion" : "Sign out"}</button>}
+    <div data-nav-collapsed={compactNavigation} data-active-page={activeView} data-kiosk={kioskMode||undefined} className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
+      <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-5 md:pb-8"}`}>
+        <header className="sentinel-command-header sr-masthead sticky top-0 z-30 w-full">
+          <div className="sr-masthead-main"><div className="sr-masthead-identity">{!kioskMode&&<button type="button" className="sr-menu-toggle" aria-controls="sentinel-navigation" aria-expanded={mobileNavigation?mobileMenuOpen:!compactNavigation} aria-label={mobileNavigation?tr("Ouvrir le menu","Open navigation"):compactNavigation?tr("Développer le menu","Expand navigation"):tr("Réduire le menu","Collapse navigation")} onClick={toggleNavigation}><SentinelGlyph kind={mobileNavigation?"more":compactNavigation?"expand":"collapse"}/></button>}<SchoolLogo caption={tr("Présences et accès","Attendance & access")}/></div>
+            <div className="sr-masthead-controls"><div className="sr-locale-switch" role="group" aria-label={tr("Langue de l’application","Application language")}><button type="button" aria-pressed={language==='fr'} onClick={()=>onLanguageChange?.('fr')}>FR</button><button type="button" aria-pressed={language==='en'} onClick={()=>onLanguageChange?.('en')}>EN</button></div>
+              <div className="sr-masthead-actions"><button type="button" onClick={()=>void handleInstall()}><SentinelGlyph kind="download"/><span>{tr("Installer","Install app")}</span></button>{!kioskMode&&<button type="button" className="sr-kiosk-launch" onClick={()=>void enterKioskMode()}><SentinelGlyph kind="gate"/><span>{tr("Mode kiosque","Kiosk mode")}</span></button>}{onLogout&&<button type="button" className="sr-masthead-logout" onClick={onLogout}><SentinelGlyph kind="exit"/><span>{tr("Déconnexion","Sign out")}</span></button>}</div>
+              {kioskMode&&<button type="button" className="sr-kiosk-unlock" data-holding={unlockHolding} onPointerDown={beginUnlockHold} onPointerUp={cancelUnlockHold} onPointerLeave={cancelUnlockHold} onPointerCancel={cancelUnlockHold}>{unlockHolding?tr("Maintenez pour sortir","Hold to exit"):tr("Déverrouiller","Unlock")}</button>}
             </div>
           </div>
         </header>
@@ -1989,10 +1846,10 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
           {renderDesktopNavigation()}
 
           <main className="min-w-0 overflow-hidden px-3 pt-4 sm:px-5 lg:px-6">
-          <header className="sentinel-page-heading"><div><p>KCS SENTINEL · {translatedNavigation[activeView].eyebrow}</p><h2>{translatedNavigation[activeView].label}</h2><span>{({dashboard:tr('Une vue claire des présences et des mouvements de l’école.','A clear overview of school attendance and movement.'),gate:tr('Identifiez la personne et confirmez son entrée ou sa sortie.','Identify the person and confirm entry or exit.'),liveFeed:tr('Suivez les pointages confirmés et leurs horaires.','Follow confirmed check-ins and their timestamps.'),disciplinary:tr('Consultez les dossiers et les informations vérifiées.','Review records and verified information.'),staff:tr('Retrouvez le personnel et le détail de sa présence.','Find staff and their attendance details.'),attendance:tr('Recherchez les présences par personne et par période.','Search attendance by person and reporting period.')} as Record<ViewMode,string>)[activeView]}</span></div><div className="sentinel-page-marker">{tr('Registre institutionnel','Institutional register')}</div></header>
+          <header className="sentinel-page-heading"><div className="sr-page-title"><span className="sr-page-icon"><SentinelGlyph kind={activeView} width={27} height={27}/></span><div><p>KCS SENTINEL · {translatedNavigation[activeView].eyebrow}</p><h2>{translatedNavigation[activeView].label}</h2><span>{({dashboard:tr('Une vue claire des présences et des mouvements de l’école.','A clear overview of school attendance and movement.'),gate:tr('Identifiez la personne et confirmez son entrée ou sa sortie.','Identify the person and confirm entry or exit.'),liveFeed:tr('Suivez les pointages confirmés et leurs horaires.','Follow confirmed check-ins and their timestamps.'),disciplinary:tr('Consultez les dossiers et les informations vérifiées.','Review records and verified information.'),staff:tr('Retrouvez le personnel et le détail de sa présence.','Find staff and their attendance details.'),attendance:tr('Recherchez les présences par personne et par période.','Search attendance by person and reporting period.')} as Record<ViewMode,string>)[activeView]}</span></div></div><div className="sentinel-page-marker">{tr('Registre institutionnel','Institutional register')}</div></header>
           <SentinelSectionJump view={activeView} language={language}/>
         {activeView === "gate" ? (
-          <section className={`min-h-[calc(100vh-13rem)] gap-6 ${gateWorkspace === "operations" ? "grid xl:grid-cols-[1.05fr_0.95fr]" : "block"}`}>
+          <section className={`sr-gate-workspace min-h-[calc(100vh-13rem)] gap-6 ${gateWorkspace === "operations" ? "grid xl:grid-cols-[1.05fr_0.95fr]" : "block"}`}>
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -2012,11 +1869,13 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                     key={workspace}
                     type="button"
                     role="tab"
+                    aria-label={label}
+                    title={label}
                     aria-selected={gateWorkspace === workspace}
                     onClick={() => setGateWorkspace(workspace)}
                     className={`rounded-xl px-4 py-3 text-left transition ${gateWorkspace === workspace ? "bg-cyan text-slate-950 shadow-lg" : "text-slate-200 hover:bg-white/5"}`}
                   >
-                    <span className="block text-sm font-semibold">{label}</span>
+                    <span className="sr-gate-label-full block text-sm font-semibold">{label}</span><span className="sr-gate-label-compact">{workspace==="identity"?tr("Identités","People"):workspace==="operations"?tr("Suivi","Monitoring"):tr("Biométrie","Biometrics")}</span>
                     <span className={`mt-1 block text-[11px] ${gateWorkspace === workspace ? "text-slate-800" : "text-slate-400"}`}>{description}</span>
                   </button>
                 ))}
