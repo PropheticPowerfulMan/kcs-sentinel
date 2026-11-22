@@ -1,3 +1,5 @@
+import SentinelGlyph from './components/SentinelGlyph'
+import SentinelSectionJump from './components/SentinelSectionJump'
 import {resilientFetch} from './resilientFetch';
 import PresenceTotals from './PresenceTotals';
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -407,6 +409,8 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
   const [students, setStudents] = useState<StudentDirectoryItem[]>([]);
   const [status, setStatus] = useState("Securely loading the live Orbit registry...");
   const [activeView, setActiveView] = useState<ViewMode>(() => getViewFromPath(window.location.pathname));
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false);
+  useEffect(()=>{if(!mobileMenuOpen)return;const close=(event:KeyboardEvent)=>{if(event.key==="Escape")setMobileMenuOpen(false)};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close)},[mobileMenuOpen]);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installState, setInstallState] = useState("Ready for entrance-tablet deployment");
   const [online, setOnline] = useState(window.navigator.onLine);
@@ -1718,7 +1722,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
   const renderDashboardHome = () => (
     <>
-      <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section data-sentinel-metrics className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {statCards.map((card) => {
           const value = overview.metrics[card.key];
           return (
@@ -1895,11 +1899,11 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                 <button
                   key={item.key}
                   type="button"
+                  aria-current={isActive ? "page" : undefined}
                   onClick={() => navigateToView(item.key)}
                   className={`sentinel-nav-item w-full rounded-xl border px-2.5 py-2 text-left transition ${isActive ? `${item.activeClass} border-transparent shadow-[0_12px_26px_rgba(15,23,42,0.22)]` : "border-white/10 bg-slate-950/35 text-white hover:border-white/20 hover:bg-white/[0.06]"}`}
                 >
-                  <div className={`text-[9px] uppercase tracking-[0.16em] ${isActive ? "text-slate-700/80" : "text-slate-400"}`}>{translatedNavigation[item.key].eyebrow}</div>
-                  <div className="mt-1 text-[13px] font-semibold leading-tight">{translatedNavigation[item.key].label}</div>
+                  <SentinelGlyph kind={item.key}/><span className="sr-nav-label"><strong>{translatedNavigation[item.key].label}</strong><small>{translatedNavigation[item.key].eyebrow}</small></span>
                 </button>
               );
             })}
@@ -1915,20 +1919,15 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
       return null;
     }
 
-    return (
-      <nav aria-label={tr("Navigation principale", "Main navigation")} className={`sentinel-mobile-nav fixed inset-x-2 bottom-2 z-50 grid ${onLogout ? "grid-cols-7" : "grid-cols-6"} gap-1 rounded-2xl border border-cyan/20 bg-[#032942]/95 p-1.5 shadow-[0_18px_55px_rgba(0,10,22,.7)] backdrop-blur-xl md:hidden`}>
-        {navigationItems.map((item) => {
-          const isActive = activeView === item.key;
-          const icon = ({ gate: "⌁", dashboard: "⌂", liveFeed: "◉", disciplinary: "▤", staff: "♙", attendance: "◷" } as const)[item.key];
-          return <button key={item.key} type="button" aria-current={isActive ? "page" : undefined} onClick={() => navigateToView(item.key)} className={`flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition active:scale-95 ${isActive ? item.activeClass : "text-slate-300 hover:bg-white/5"}`}><span aria-hidden="true" className="text-base leading-none">{icon}</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{translatedNavigation[item.key].shortLabel}</span></button>;
-        })}
-        {onLogout && <button type="button" onClick={onLogout} className="flex min-w-0 flex-col items-center justify-center rounded-xl px-1 py-2 text-center text-rose-200 transition active:scale-95"><span aria-hidden="true" className="text-base leading-none">↪</span><span className="mt-1 max-w-full truncate text-[9px] font-bold leading-none">{language === "fr" ? "Sortir" : "Exit"}</span></button>}
-      </nav>
-    );
+    return <><nav aria-label={tr("Navigation principale","Main navigation")} className="sentinel-mobile-nav sr-bottom-nav">
+      {navigationItems.filter(item=>["dashboard","gate","liveFeed","attendance"].includes(item.key)).map(item=><button key={item.key} type="button" aria-current={activeView===item.key?"page":undefined} onClick={()=>{navigateToView(item.key);setMobileMenuOpen(false)}}><SentinelGlyph kind={item.key}/><span>{translatedNavigation[item.key].shortLabel}</span></button>)}
+      <button type="button" aria-expanded={mobileMenuOpen} aria-controls="sentinel-mobile-more" onClick={()=>setMobileMenuOpen(v=>!v)}><SentinelGlyph kind="more"/><span>{tr("Plus","More")}</span></button>
+    </nav>{mobileMenuOpen&&<div id="sentinel-mobile-more" className="sr-mobile-more"><div className="sr-mobile-more-heading"><strong>{tr("Votre espace Sentinel","Your Sentinel workspace")}</strong><button type="button" aria-label={tr("Fermer le menu","Close menu")} onClick={()=>setMobileMenuOpen(false)}>×</button></div>{navigationItems.filter(item=>!["dashboard","gate","liveFeed","attendance"].includes(item.key)).map(item=><button key={item.key} type="button" onClick={()=>{navigateToView(item.key);setMobileMenuOpen(false)}}><SentinelGlyph kind={item.key}/>{translatedNavigation[item.key].label}</button>)}<button type="button" onClick={()=>{void handleInstall();setMobileMenuOpen(false)}}>{tr("Installer l’application","Install app")}</button><button type="button" onClick={()=>{void enterKioskMode();setMobileMenuOpen(false)}}>{tr("Mode kiosque","Kiosk mode")}</button><a href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener">{tr("Mot de passe Sentinel","Sentinel password")}</a>{onLogout&&<button type="button" className="sr-signout" onClick={onLogout}><SentinelGlyph kind="exit"/>{tr("Déconnexion","Sign out")}</button>}</div>}</>;
+
   };
 
   return (
-    <div className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
+    <div data-kiosk={kioskMode||undefined} className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
       <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-24 md:pb-8"}`}>
         <header className="sentinel-command-header sticky top-0 z-30 w-full overflow-hidden border-b border-white/10 bg-white/5 px-3 py-3 shadow-glow backdrop-blur-xl sm:px-5 lg:px-6">
           <div className="absolute inset-0 bg-grid bg-[size:32px_32px] opacity-20" />
@@ -1939,7 +1938,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               </div>
               <div className="sentinel-compact-status inline-flex w-fit items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-xs text-cyan">
                 <span className="h-2 w-2 rounded-full bg-signal shadow-[0_0_12px_rgba(28,231,176,0.9)]" />
-                {online ? status : "Mode résilient hors connexion"}
+                {online ? tr("Campus KCS","KCS campus") : tr("Hors connexion","Offline")}
               </div>
             </div>
 
@@ -1991,6 +1990,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
           <main className="min-w-0 overflow-hidden px-3 pt-4 sm:px-5 lg:px-6">
           <header className="sentinel-page-heading"><div><p>KCS SENTINEL · {translatedNavigation[activeView].eyebrow}</p><h2>{translatedNavigation[activeView].label}</h2><span>{({dashboard:tr('Une vue claire des présences et des mouvements de l’école.','A clear overview of school attendance and movement.'),gate:tr('Identifiez la personne et confirmez son entrée ou sa sortie.','Identify the person and confirm entry or exit.'),liveFeed:tr('Suivez les pointages confirmés et leurs horaires.','Follow confirmed check-ins and their timestamps.'),disciplinary:tr('Consultez les dossiers et les informations vérifiées.','Review records and verified information.'),staff:tr('Retrouvez le personnel et le détail de sa présence.','Find staff and their attendance details.'),attendance:tr('Recherchez les présences par personne et par période.','Search attendance by person and reporting period.')} as Record<ViewMode,string>)[activeView]}</span></div><div className="sentinel-page-marker">{tr('Registre institutionnel','Institutional register')}</div></header>
+          <SentinelSectionJump view={activeView} language={language}/>
         {activeView === "gate" ? (
           <section className={`min-h-[calc(100vh-13rem)] gap-6 ${gateWorkspace === "operations" ? "grid xl:grid-cols-[1.05fr_0.95fr]" : "block"}`}>
             <div className="rounded-[32px] border border-white/10 bg-white/[0.05] p-5 shadow-glow backdrop-blur-xl sm:p-6">

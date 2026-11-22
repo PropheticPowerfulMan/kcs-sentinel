@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 
 import InstitutionalGate from "./InstitutionalGate";
 import "./index.css";
+import "./sentinelRenewal.css";
 
 type SentinelInstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> };
 declare global { interface Window { __kcsSentinelInstallPrompt?: SentinelInstallPrompt } }
