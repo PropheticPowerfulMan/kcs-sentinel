@@ -1,3 +1,4 @@
+import OperationResultDialog from './components/OperationResultDialog';
 import SentinelGlyph from './components/SentinelGlyph'
 import SentinelSectionJump from './components/SentinelSectionJump'
 import {resilientFetch} from './resilientFetch';
@@ -1832,6 +1833,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
 
   return (
     <div data-nav-collapsed={compactNavigation} data-active-page={activeView} data-kiosk={kioskMode||undefined} className="sentinel-app-shell sentinel-kitchen-surface min-h-screen text-ink">
+      <OperationResultDialog result={operationDialog} onClose={()=>setOperationDialog(null)} language={language}/>
       <div className={`${kioskMode ? "min-h-screen p-3" : "min-h-screen w-full pb-5 md:pb-8"}`}>
         <header className="sentinel-command-header sr-masthead sticky top-0 z-30 w-full">
           <div className="sr-masthead-main"><div className="sr-masthead-identity">{!kioskMode&&<button type="button" className="sr-menu-toggle" aria-controls="sentinel-navigation" aria-expanded={mobileNavigation?mobileMenuOpen:!compactNavigation} aria-label={mobileNavigation?tr("Ouvrir le menu","Open navigation"):compactNavigation?tr("Développer le menu","Expand navigation"):tr("Réduire le menu","Collapse navigation")} onClick={toggleNavigation}><SentinelGlyph kind={mobileNavigation?"more":compactNavigation?"expand":"collapse"}/></button>}<SchoolLogo caption={tr("Présences et accès","Attendance & access")}/></div>
@@ -1896,7 +1898,6 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
                 </div>
 
                 {movementNotice && <div className="mt-4 rounded-2xl border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm leading-6 text-cyan">{movementNotice}</div>}
-                {operationDialog && <div className="fixed inset-0 z-[250] flex items-center justify-center bg-[#011728]/75 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="sentinel-operation-title"><section className={`w-full max-w-xl rounded-[2rem] border p-7 text-center shadow-2xl sm:p-9 ${operationDialog.kind === 'success' ? 'border-emerald-300/40 bg-[#052e3a]' : 'border-rose-300/40 bg-[#351826]'}`}><div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-full text-3xl ${operationDialog.kind === 'success' ? 'bg-emerald-300 text-emerald-950' : 'bg-rose-300 text-rose-950'}`}>{operationDialog.kind === 'success' ? '✓' : '!'}</div><h3 id="sentinel-operation-title" className="mt-5 text-2xl font-black text-white">{operationDialog.title}</h3><p className="mt-3 text-sm leading-7 text-slate-200">{operationDialog.message}</p><button type="button" onClick={()=>setOperationDialog(null)} className={`mt-6 w-full rounded-xl px-5 py-3 text-sm font-black shadow-lg transition hover:-translate-y-0.5 ${operationDialog.kind === 'success' ? 'bg-emerald-300 text-emerald-950' : 'bg-rose-300 text-rose-950'}`}>{tr('Compris','Done')}</button></section></div>}
 
                 <div className="mt-5 grid gap-4 xl:grid-cols-2">
                   <section className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.04] p-4">

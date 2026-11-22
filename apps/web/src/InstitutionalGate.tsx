@@ -1,3 +1,4 @@
+import OperationResultDialog,{type OperationResult} from './components/OperationResultDialog'
 import {resilientFetch} from './resilientFetch'
 import PresenceTotals from './PresenceTotals'
 import { FormEvent, useEffect, useMemo, useState } from 'react'
@@ -53,14 +54,14 @@ function AttendanceVisuals({ details, punctuality, language }: { details: any[];
   const points = [...details].slice(0, 14).reverse()
   const maxDuration = Math.max(480, ...points.map(day => Number(day.durationMinutes || 0)))
   const arrivals = points.map(day => day.firstEntry ? schoolClockDecimal(day.firstEntry) : null)
-  const linePoints = arrivals.map((hour, index) => `${points.length <= 1 ? 50 : (index / (points.length - 1)) * 100},${hour == null ? 88 : Math.max(8, Math.min(92, ((hour - 5) / 6) * 84 + 8))}`).join(' ')
-  return <section className="mt-5 rounded-3xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur md:p-7" aria-label={t.visualTitle}>
+  const linePoints = arrivals.map((hour, index) => `${points.length <= 1 ? 50 : 1 + (index / (points.length - 1)) * 98},${hour == null ? 88 : Math.max(8, Math.min(92, ((hour - 5) / 6) * 84 + 8))}`).join(' ')
+  return <section data-sentinel-attendance-visuals className="mt-5 min-w-0 rounded-3xl border border-cyan-300/15 bg-white/10 p-5 shadow-xl backdrop-blur md:p-7" aria-label={t.visualTitle}>
     <div><small className="font-bold tracking-widest text-cyan-300">DATA VISUALIZATION</small><h2 className="mt-2 text-2xl font-black">{t.visualTitle}</h2><p className="mt-1 text-sm text-slate-300">{t.visualHelp}</p></div>
-    <div className="mt-5 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
+    <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,.75fr)]">
       <article className="rounded-2xl border border-white/10 bg-[#042f4d]/75 p-4"><h3 className="font-extrabold">{t.durationChart}</h3><div className="mt-5 flex h-44 items-end gap-1.5 sm:gap-2" role="img" aria-label={t.durationChart}>{points.map((day, index) => { const minutes = Number(day.durationMinutes || 0); const height = minutes ? Math.max(8, (minutes / maxDuration) * 100) : 3; return <div key={`${day.date}-${index}`} className="group flex min-w-0 flex-1 flex-col items-center justify-end gap-2"><span className="pointer-events-none hidden text-[10px] font-bold text-cyan-100 sm:block">{minutes ? `${Math.round(minutes / 60 * 10) / 10}h` : '—'}</span><div title={`${day.date}: ${minutes ? formatMinutes(minutes) : '—'}`} className={`w-full max-w-8 rounded-t-md transition-all duration-500 group-hover:brightness-125 ${day.late ? 'bg-amber-400' : 'bg-gradient-to-t from-cyan-600 to-teal-300'}`} style={{ height: `${height}%` }} /><span className="max-w-full truncate text-[9px] text-slate-400">{String(day.date || '').slice(5)}</span></div>})}{!points.length && <div className="m-auto text-sm text-slate-400">{t.noMovement}</div>}</div></article>
-      <article className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#042f4d]/75 p-5 text-center"><h3 className="font-extrabold">{t.punctualityChart}</h3><div className="relative mt-5 grid h-40 w-40 place-items-center rounded-full shadow-[0_0_45px_rgba(34,211,238,.16)]" style={{ background: `conic-gradient(#2dd4bf 0 ${Math.max(0, Math.min(100, punctuality))}%, rgba(255,255,255,.1) ${Math.max(0, Math.min(100, punctuality))}% 100%)` }}><div className="grid h-28 w-28 place-items-center rounded-full bg-[#042f4d]"><strong className="text-3xl">{punctuality}%</strong></div></div><div className="mt-4 flex gap-4 text-xs"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-teal-400" />{t.onTime}</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />{t.late}</span></div></article>
+      <article className="flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-[#042f4d]/75 p-5 text-center"><h3 className="font-extrabold">{t.punctualityChart}</h3><div className="relative mt-5 grid h-40 w-40 place-items-center rounded-full shadow-[0_0_45px_rgba(34,211,238,.16)]" style={{ background: `conic-gradient(#2dd4bf 0 ${Math.max(0, Math.min(100, punctuality))}%, rgba(255,255,255,.1) ${Math.max(0, Math.min(100, punctuality))}% 100%)` }}><div className="grid h-28 w-28 place-items-center rounded-full bg-[#042f4d]"><strong className="text-3xl">{punctuality}%</strong></div></div><div className="mt-4 flex flex-wrap justify-center gap-3 text-xs"><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-teal-400" />{t.onTime}</span><span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />{t.late}</span></div></article>
     </div>
-    <article className="mt-4 rounded-2xl border border-white/10 bg-[#042f4d]/75 p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-extrabold">{t.arrivalChart}</h3><span className="text-xs text-slate-400">05:00–11:00</span></div><div className="mt-4 h-36 w-full"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible" role="img" aria-label={t.arrivalChart}><defs><linearGradient id="sentinelLine" x1="0" x2="1"><stop stopColor="#22d3ee"/><stop offset="1" stopColor="#2dd4bf"/></linearGradient></defs>{[8,36,64,92].map(y=><line key={y} x1="0" y1={y} x2="100" y2={y} stroke="rgba(255,255,255,.1)" strokeWidth=".5"/>)}{points.length > 0 && <polyline points={linePoints} fill="none" stroke="url(#sentinelLine)" strokeWidth="2.4" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>}</svg></div><div className="flex justify-between text-[10px] text-slate-400"><span>{points[0]?.date || '—'}</span><span>{points.at(-1)?.date || '—'}</span></div></article>
+    <article className="mt-4 rounded-2xl border border-white/10 bg-[#042f4d]/75 p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-extrabold">{t.arrivalChart}</h3><span className="text-xs text-slate-400">05:00–11:00</span></div><div className="mt-4 h-36 w-full"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="block h-full w-full max-w-full overflow-hidden" role="img" aria-label={t.arrivalChart}><defs><linearGradient id="sentinelLine" x1="0" x2="1"><stop stopColor="#22d3ee"/><stop offset="1" stopColor="#2dd4bf"/></linearGradient></defs>{[8,36,64,92].map(y=><line key={y} x1="0" y1={y} x2="100" y2={y} stroke="rgba(255,255,255,.1)" strokeWidth=".5"/>)}{points.length > 0 && <polyline points={linePoints} fill="none" stroke="url(#sentinelLine)" strokeWidth="2.4" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>}</svg></div><div className="flex justify-between text-[10px] text-slate-400"><span>{points[0]?.date || '—'}</span><span>{points.at(-1)?.date || '—'}</span></div></article>
   </section>
 }
 
@@ -74,6 +75,7 @@ export default function InstitutionalGate() {
   const [showPassword, setShowPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [operationResult,setOperationResult]=useState<OperationResult|null>(null)
   const [data, setData] = useState<any>(null)
   const [incidentType, setIncidentType] = useState('LATE')
   const [incidentDate, setIncidentDate] = useState(new Date().toISOString().slice(0, 10))
@@ -160,10 +162,11 @@ export default function InstitutionalGate() {
       const response = await fetch(API + '/justifications', { method: 'POST', headers: sessionHeaders(token), body: JSON.stringify({ incidentType, incidentDate, reason }) })
       const body = await response.json()
       if (!response.ok) throw new Error(body.message)
+      setOperationResult({kind:'success',title:language==='fr'?'Justificatif envoyé':'Explanation submitted',message:language==='fr'?'Votre justificatif a été enregistré et transmis à KCS.':'Your explanation was recorded and sent to KCS.'})
       setReason('')
       const refreshed = await resilientFetch(API + '/justifications', { headers: sessionHeaders(token) }).then(item => item.json())
       setData((current: any) => ({ ...current, ...refreshed }))
-    } catch (reason: any) { setError(reason.message || 'Envoi impossible') }
+    } catch (reason: any) { setOperationResult({kind:'error',title:language==='fr'?'Envoi non confirmé':'Submission not confirmed',message:reason.message||(language==='fr'?'Envoi impossible. Réessayez.':'Unable to submit. Please retry.')}) }
     finally { setBusy(false) }
   }
 
@@ -210,7 +213,7 @@ export default function InstitutionalGate() {
     const periods = data?.statistics?.periods || {}
     const selected = periods[selectedPeriod] || {}
     return <main data-sentinel-personal data-personal-tab={personalTab} className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
-    <div className="sentinel-personal-container mx-auto max-w-7xl">
+    <div className="sentinel-personal-container mx-auto max-w-7xl"><OperationResultDialog result={operationResult} onClose={()=>setOperationResult(null)} language={language}/>
       <header className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-[#073d5e]/90 p-5 shadow-2xl backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-7">
         <div className="flex items-center gap-4"><img src="./icons/kcs-logo.jpg" alt="Kinshasa Christian School" className="h-16 w-16 rounded-full border-2 border-cyan-300 object-cover" /><div><small className="font-bold tracking-[.22em] text-cyan-300">KCS SENTINEL · {t.personal}</small><h1 className="mt-1 text-2xl font-black sm:text-3xl">{user.fullName}</h1></div></div>
         <div className="flex flex-wrap gap-2"><div className="flex rounded-xl border border-cyan-300/40 bg-[#032942]/90 p-1"><button type="button" aria-pressed={language==='fr'} onClick={() => changeLanguage('fr')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'fr' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>FR</button><button type="button" aria-pressed={language==='en'} onClick={() => changeLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'en' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>EN</button></div><button onClick={() => void install()} className="sentinel-action rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100">{t.install}</button><a href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener" className="sentinel-action rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100">{language==="fr"?"Mot de passe Sentinel":"Sentinel password"}</a><button onClick={logout} className="sentinel-action rounded-xl border border-rose-200/30 bg-rose-400/10 px-4 py-2 text-sm font-bold text-rose-50">{t.logout}</button></div>
