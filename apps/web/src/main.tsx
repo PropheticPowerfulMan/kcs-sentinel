@@ -20,12 +20,6 @@ window.addEventListener('appinstalled', () => { window.__kcsSentinelInstallPromp
 
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
   window.addEventListener("load", () => {
-    let reloadingForSentinelUpdate = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (reloadingForSentinelUpdate) return;
-      reloadingForSentinelUpdate = true;
-      window.location.reload();
-    });
     void navigator.serviceWorker.getRegistrations().then(async () => {
       // Sentinel owns only /sentinel/. Keep Nexus and sibling PWA
       // registrations intact and rely on the most-specific browser scope.

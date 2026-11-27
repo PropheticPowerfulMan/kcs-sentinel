@@ -185,3 +185,10 @@ async function statistics(personId:string,reportFrom?:string,reportTo?:string){
 }
 
 export default router;
+
+router.get('/me/personal-portrait',auth,safe(async(req,res)=>{
+ const url=new URL('/api/personal-portraits/'+encodeURIComponent(req.sentinelUser.sub),env.nexusApiUrl);url.searchParams.set('kind','nexus')
+ const response=await fetch(url,{headers:{'x-api-key':env.orbitApiKey,'x-app-slug':'KCS_SENTINEL'},signal:AbortSignal.timeout(8000)})
+ res.setHeader('Cache-Control','private, no-store');if(response.status===204)return res.json({image:null});if(!response.ok)return res.status(503).json({message:'Personal portrait temporarily unavailable'})
+ const type=response.headers.get('content-type')||'';if(!/^image\/(?:jpeg|png|webp)/.test(type))throw Error('Invalid personal portrait');const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>1500000)throw Error('Personal portrait too large');return res.json({image:'data:'+type.split(';')[0]+';base64,'+bytes.toString('base64')})
+}))

@@ -381,12 +381,13 @@ const getSuccessScanMessage = (direction: AttendanceDirection, duplicate: boolea
 };
 
 type AppProps = {
+  personalPortrait?:string|null;
   language?: "fr" | "en";
   onLanguageChange?: (language: "fr" | "en") => void;
   onLogout?: () => void;
 };
 
-function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
+function App({ language = "fr", onLanguageChange, onLogout,personalPortrait }: AppProps) {
   const tr = (fr: string, en: string) => language === "fr" ? fr : en;
   const translatedNavigation: Record<ViewMode, { label: string; shortLabel: string; eyebrow: string }> = {
     gate: { label: tr("Poste d'entrée", "Entrance desk"), shortLabel: tr("Entrée", "Gate"), eyebrow: tr("Capteur", "Scanner") },
@@ -1823,7 +1824,7 @@ function App({ language = "fr", onLanguageChange, onLogout }: AppProps) {
               );
             })}
           </div>
-          <div className="sr-nav-tools"><button type="button" aria-label={tr("Installer l’application","Install app")} title={tr("Installer l’application","Install app")} onClick={()=>{void handleInstall();setMobileMenuOpen(false)}}><SentinelGlyph kind="download"/><span>{tr("Installer l’application","Install app")}</span></button><button type="button" aria-label={tr("Mode kiosque","Kiosk mode")} title={tr("Mode kiosque","Kiosk mode")} onClick={()=>{void enterKioskMode();setMobileMenuOpen(false)}}><SentinelGlyph kind="gate"/><span>{tr("Mode kiosque","Kiosk mode")}</span></button>{onLogout&&<><a aria-label={tr("Mot de passe Sentinel","Sentinel password")} title={tr("Mot de passe Sentinel","Sentinel password")} href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener"><SentinelGlyph kind="lock"/><span>{tr("Mot de passe Sentinel","Sentinel password")}</span></a><button type="button" className="sr-signout" aria-label={tr("Déconnexion","Sign out")} title={tr("Déconnexion","Sign out")} onClick={onLogout}><SentinelGlyph kind="exit"/><span>{tr("Déconnexion","Sign out")}</span></button></>}</div>
+          <div className="sr-nav-tools"><button type="button" aria-label={tr("Installer l’application","Install app")} title={tr("Installer l’application","Install app")} onClick={()=>{void handleInstall();setMobileMenuOpen(false)}}><SentinelGlyph kind="download"/><span>{tr("Installer l’application","Install app")}</span></button><button type="button" aria-label={tr("Mode kiosque","Kiosk mode")} title={tr("Mode kiosque","Kiosk mode")} onClick={()=>{void enterKioskMode();setMobileMenuOpen(false)}}><SentinelGlyph kind="gate"/><span>{tr("Mode kiosque","Kiosk mode")}</span></button>{onLogout&&<><a aria-label={tr("Mot de passe Sentinel","Sentinel password")} title={tr("Mot de passe Sentinel","Sentinel password")} href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener"><SentinelGlyph kind="lock"/><span>{tr("Mot de passe Sentinel","Sentinel password")}</span></a>{personalPortrait&&<img src={personalPortrait} alt={tr('Photo personnelle','Personal photo')} style={{width:38,height:38,borderRadius:13,objectFit:'cover',flexShrink:0,border:'1px solid #53768a'}}/>}<button type="button" className="sr-signout" aria-label={tr("Déconnexion","Sign out")} title={tr("Déconnexion","Sign out")} onClick={onLogout}><SentinelGlyph kind="exit"/><span>{tr("Déconnexion","Sign out")}</span></button></>}</div>
         </div>
       </aside>
     );
