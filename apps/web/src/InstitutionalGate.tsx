@@ -1,3 +1,4 @@
+import {useDashboardPortrait} from './useDashboardPortrait'
 import OperationResultDialog,{type OperationResult} from './components/OperationResultDialog'
 import {resilientFetch} from './resilientFetch'
 import PresenceTotals from './PresenceTotals'
@@ -69,6 +70,7 @@ export default function InstitutionalGate() {
   const [language, setLanguage] = useState<Language>(() => (localStorage.getItem('sentinel-language') as Language) || 'fr')
   const [token, setToken] = useState(() => sessionStorage.getItem('sentinel-token') || '')
   const [user, setUser] = useState<User | null>(() => { try { return JSON.parse(sessionStorage.getItem('sentinel-user') || 'null') } catch { return null } })
+  const personalPortrait=useDashboardPortrait(user?.sub?user.sub+':'+token:null,async()=>{const response=await fetch(API+'/me/personal-portrait',{headers:sessionHeaders(token),cache:'no-store'});if(!response.ok)throw Error('Portrait unavailable');return response.json()});
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [twoFactorCode,setTwoFactorCode]=useState(''),[requiresTwoFactor,setRequiresTwoFactor]=useState(false)
@@ -206,7 +208,7 @@ export default function InstitutionalGate() {
   }
 
   if (token && user?.role !== 'entity') return <div className="sentinel-kitchen-surface relative min-h-screen">
-    <App language={language} onLanguageChange={changeLanguage} onLogout={logout} />
+    <App personalPortrait={personalPortrait} language={language} onLanguageChange={changeLanguage} onLogout={logout} />
   </div>
 
   if (token && user) {
@@ -215,7 +217,7 @@ export default function InstitutionalGate() {
     return <main data-sentinel-personal data-personal-tab={personalTab} className="min-h-screen bg-[radial-gradient(circle_at_top_left,#0d7bbb_0,#06365f_42%,#031d32_100%)] p-3 font-display text-white sm:p-6">
     <div className="sentinel-personal-container mx-auto max-w-7xl"><OperationResultDialog result={operationResult} onClose={()=>setOperationResult(null)} language={language}/>
       <header className="flex flex-col gap-4 rounded-3xl border border-cyan-300/20 bg-[#073d5e]/90 p-5 shadow-2xl backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:p-7">
-        <div className="flex items-center gap-4"><img src="./icons/kcs-logo.jpg" alt="Kinshasa Christian School" className="h-16 w-16 rounded-full border-2 border-cyan-300 object-cover" /><div><small className="font-bold tracking-[.22em] text-cyan-300">KCS SENTINEL · {t.personal}</small><h1 className="mt-1 text-2xl font-black sm:text-3xl">{user.fullName}</h1></div></div>
+        <div className="flex items-center gap-4"><img src={personalPortrait||"./icons/kcs-logo.jpg"} alt={user.fullName} className="h-16 w-16 rounded-full border-2 border-cyan-300 object-cover" /><div><small className="font-bold tracking-[.22em] text-cyan-300">KCS SENTINEL · {t.personal}</small><h1 className="mt-1 text-2xl font-black sm:text-3xl">{user.fullName}</h1></div></div>
         <div className="flex flex-wrap gap-2"><div className="flex rounded-xl border border-cyan-300/40 bg-[#032942]/90 p-1"><button type="button" aria-pressed={language==='fr'} onClick={() => changeLanguage('fr')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'fr' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>FR</button><button type="button" aria-pressed={language==='en'} onClick={() => changeLanguage('en')} className={`rounded-lg px-3 py-1.5 text-xs font-black transition ${language === 'en' ? 'bg-cyan-300 text-slate-950 shadow' : 'text-white hover:bg-white/15'}`}>EN</button></div><button onClick={() => void install()} className="sentinel-action rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100">{t.install}</button><a href="https://kinshasachristianschool.org/application-access?app=KCS_SENTINEL" target="_blank" rel="noopener" className="sentinel-action rounded-xl border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-sm font-bold text-cyan-100">{language==="fr"?"Mot de passe Sentinel":"Sentinel password"}</a><button onClick={logout} className="sentinel-action rounded-xl border border-rose-200/30 bg-rose-400/10 px-4 py-2 text-sm font-bold text-rose-50">{t.logout}</button></div>
       </header>
       <nav className="sr-personal-tabs" aria-label={language==='fr'?'Rubriques de présence':'Attendance sections'}>{[['overview',language==='fr'?'Vue d’ensemble':'Overview'],['activity',language==='fr'?'Mouvements et rapports':'Activity & reports'],['justifications',language==='fr'?'Mes justificatifs':'My justifications']].map(([id,label])=><button type="button" key={id} aria-pressed={personalTab===id} onClick={()=>setPersonalTab(id)}>{label}</button>)}</nav>

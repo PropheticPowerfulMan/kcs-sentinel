@@ -1,4 +1,4 @@
-const CACHE_NAME = "kcs-sentinel-shell-v16-modern-workspaces";
+const CACHE_NAME = "kcs-sentinel-shell-v17-isolated-required-updates-20261127";
 const BASE_PATH = self.registration.scope;
 const toScopedPath = (path) => new URL(path, BASE_PATH).toString();
 const APP_SHELL = [
@@ -29,6 +29,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  const url=new URL(event.request.url),scope=new URL(self.registration.scope);
+  if(url.origin!==scope.origin||!url.pathname.startsWith(scope.pathname)||url.pathname.startsWith(scope.pathname+'api/')||url.pathname.endsWith('/app-version.json')||event.request.headers.has('authorization'))return;
   if (event.request.method !== "GET") {
     return;
   }
@@ -84,7 +86,9 @@ self.addEventListener("fetch", (event) => {
           void caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => caches.match(toScopedPath("./")));
+        .catch(() => caches.match(event.request).then(cached=>cached||Response.error()));
     })
   );
 });
+
+self.addEventListener("message",event=>{if(event.data?.type==="SKIP_WAITING")self.skipWaiting()});

@@ -1,9 +1,10 @@
+import{mandatoryUpdatePlugin}from'./client-runtime/vite.mjs';
 var _a;
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 export default defineConfig({
     base: ((_a = process.env.VITE_BASE_PATH) === null || _a === void 0 ? void 0 : _a.trim()) || (process.env.GITHUB_PAGES === "true" ? "/kcs-sentinel/" : "/"),
-    plugins: [react()],
+    plugins: [react(),mandatoryUpdatePlugin('KCS_SENTINEL')],
     server: {
         host: true,
         port: 5173
